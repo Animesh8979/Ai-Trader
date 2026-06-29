@@ -1,0 +1,2 @@
+# This folder holds local runtime data (sqlite db, logs, audit jsonl, cache).
+# Its contents are gitignored; this file just keeps the empty folder in git.

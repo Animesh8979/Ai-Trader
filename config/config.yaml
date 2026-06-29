@@ -1,0 +1,52 @@
+# =============================================================================
+#  Godmode Trading Agent — main configuration (safe, NON-secret settings).
+#  API keys do NOT go here — they live in the .env file.
+#  Edit values here to tune behaviour; the setup wizard sets sane defaults.
+# =============================================================================
+
+app:
+  # paper    = simulated money, real prices (SAFE — the default)
+  # backtest = replay historical data only
+  # live     = REAL money (locked behind extra confirmations; not used yet)
+  mode: paper
+  base_currency: USDT
+  paper_starting_equity: 100000      # starting simulated equity for paper trading
+  decision_interval_seconds: 300     # how often the agent "thinks" in the live loop
+  timezone: UTC
+
+# -----------------------------------------------------------------------------
+#  The deterministic RISK ENGINE limits. The LLM can NEVER exceed these.
+#  Percentages are of current total equity unless noted. Tune conservatively.
+# -----------------------------------------------------------------------------
+risk:
+  max_position_pct: 10.0             # max % of equity in a single position
+  max_total_exposure_pct: 60.0       # max % of equity deployed across all positions
+  max_daily_loss_pct: 3.0            # stop trading for the day after this realised loss
+  max_drawdown_pct: 15.0             # HARD halt if equity falls this far below its peak
+  max_consecutive_losses: 6          # cool-down after this many losing trades in a row
+  per_order_max_notional: 5000       # max notional value of any single order (base ccy)
+  min_order_notional: 10             # ignore dust-sized orders below this
+  max_open_positions: 8              # cap on concurrent open positions
+  default_stop_loss_pct: 5.0         # default protective stop if a strategy omits one
+  cooldown_minutes_after_halt: 60    # wait time after a circuit-breaker halt
+
+# -----------------------------------------------------------------------------
+#  Markets / desks. Phase 0 ships CRYPTO on a free testnet only.
+#  The others are placeholders switched on in Phase 4.
+# -----------------------------------------------------------------------------
+markets:
+  crypto:
+    enabled: true
+    venue: binance_testnet           # binance_testnet | bybit_testnet
+    quote_currency: USDT
+    symbols: [BTC/USDT, ETH/USDT, SOL/USDT]
+    candle_timeframe: 1h
+  prediction:
+    enabled: false
+    venue: polymarket
+  equities:
+    enabled: false
+    venue: alpaca_paper
+  fx:
+    enabled: false
+    venue: oanda_practice

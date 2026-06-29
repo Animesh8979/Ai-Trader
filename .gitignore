@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# --- Secrets / environment (NEVER commit real keys) ---
+.env
+*.env
+!.env.example
+
+# --- Local data, logs, databases (keep the folder, ignore contents) ---
+data/*
+!data/.gitkeep
+logs/
+*.log
+*.sqlite
+*.sqlite3
+*.db
+*.jsonl
+
+# --- Kill-switch sentinel file ---
+STOP
+data/STOP
+
+# --- OS / IDE noise ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# --- Tests / coverage ---
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Graphify output
+graphify-out/

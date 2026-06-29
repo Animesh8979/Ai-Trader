@@ -1,0 +1,72 @@
+{
+  "mcpServers": {
+    "memory": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-memory@1.0.0"]
+    },
+    "postgres": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-postgres@1.0.0", "postgresql://localhost/godmode"]
+    },
+    "puppeteer": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-puppeteer@1.0.0"]
+    },
+    "github": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-github@1.0.0"]
+    },
+    "fetch": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-fetch@1.0.0"]
+    },
+    "alphavantage": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-alphavantage@1.0.0"]
+    },
+    "docker": {
+      "command": "npx",
+      "args": ["--yes", "@modelcontextprotocol/server-docker@1.0.0"]
+    },
+    "octodamus": {
+      "command": "uvx",
+      "args": ["octodamus-core@1.0.0"]
+    },
+    "katzilla": {
+      "command": "npx",
+      "args": ["--yes", "@katzilla/mcp@1.0.0"]
+    },
+    "network_ai": {
+      "command": "npx",
+      "args": ["--yes", "network-ai-server@1.0.0"]
+    },
+    "swarmwage": {
+      "command": "npx",
+      "args": ["--yes", "swarmwage@1.0.0"]
+    },
+    "timeplus": {
+      "command": "uvx",
+      "args": ["mcp-timeplus@1.0.0"]
+    },
+    "aegis_dq": {
+      "command": "uvx",
+      "args": ["aegis-dq@1.0.0"]
+    },
+    "pg_mnemosyne": {
+      "command": "uvx",
+      "args": ["pg-mnemosyne-mcp@1.0.0"]
+    },
+    "verilexdata": {
+      "command": "npx",
+      "args": ["--yes", "verilexdata-mcp@1.0.0"]
+    },
+    "x402station": {
+      "command": "npx",
+      "args": ["--yes", "x402station-mcp@1.0.0"]
+    },
+    "agentdeals": {
+      "command": "npx",
+      "args": ["--yes", "agentdeals-mcp@1.0.0"]
+    }
+  }
+}

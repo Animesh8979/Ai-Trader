@@ -1,0 +1,42 @@
+# =============================================================================
+#  Which LLM model each agent ROLE uses.
+#  LiteLLM routes by the provider prefix:
+#     anthropic/...   gemini/...   openai/...   ollama/...
+#
+#  Use a model you actually have a key for (see .env). Cheap/fast models are fine
+#  for the analyst roles; use a stronger model for `trader` and `risk_manager`.
+#  To switch everything to Gemini, just replace the model strings below.
+# =============================================================================
+
+# Used if a role isn't listed in `roles`.
+default: nvidia_nim/meta/llama-3.1-8b-instruct
+
+roles:
+  technical_analyst:   nvidia_nim/meta/llama-3.1-8b-instruct
+  news_analyst:        nvidia_nim/meta/llama-3.1-8b-instruct
+  sentiment_analyst:   nvidia_nim/meta/llama-3.1-8b-instruct
+  fundamental_analyst: nvidia_nim/meta/llama-3.1-8b-instruct
+  bull_researcher:     nvidia_nim/meta/llama-3.1-8b-instruct
+  bear_researcher:     nvidia_nim/meta/llama-3.1-8b-instruct
+  trader:              nvidia_nim/meta/llama-3.1-70b-instruct
+  risk_manager:        nvidia_nim/meta/llama-3.1-70b-instruct
+  reflection:          nvidia_nim/meta/llama-3.1-8b-instruct
+
+# Generation defaults applied to every call.
+params:
+  temperature: 0.2
+  max_tokens: 1500
+  timeout_seconds: 60
+  # If the primary model errors or rate-limits, try these in order.
+  # (Only those you have keys for will actually be used.)
+  fallbacks: [gemini/gemini-1.5-flash, openai/gpt-4o-mini]
+
+# -----------------------------------------------------------------------------
+#  Example: an all-Gemini setup (copy over the values above)
+#    default: gemini/gemini-1.5-flash
+#    roles:
+#      trader:       gemini/gemini-1.5-pro
+#      risk_manager: gemini/gemini-1.5-pro
+#  Example: a free, fully-local setup with Ollama
+#    default: ollama/llama3.1
+# -----------------------------------------------------------------------------
