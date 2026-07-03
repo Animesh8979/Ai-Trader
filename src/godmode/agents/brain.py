@@ -124,6 +124,7 @@ class MultiAgentBrain:
             "You are a Bull Researcher Agent. Your task is to analyze the data and make the strongest possible argument to BUY.\n"
             f"You have the following MCP tools available: {json.dumps(self.mcp_tools)}\n"
             "CRITICAL: You MUST use the `network_ai` blackboard MCP tool to post your atomic updates and read the Bear's counter-arguments in real-time. Follow the blackboard-negotiation skill rules.\n"
+            "CRITICAL: Query the `mem0` MCP server to retrieve persistent cross-session memory for past mistakes on this asset.\n"
             "Format your argument as concise bullet points."
         )
         user = (
@@ -144,6 +145,7 @@ class MultiAgentBrain:
             "You are a Bear Researcher Agent. Your task is to analyze the data and make the strongest possible argument to SELL.\n"
             f"You have the following MCP tools available: {json.dumps(self.mcp_tools)}\n"
             "CRITICAL: You MUST use the `network_ai` blackboard MCP tool to post your atomic updates and read the Bull's counter-arguments in real-time. Follow the blackboard-negotiation skill rules.\n"
+            "CRITICAL: Query the `mem0` MCP server to retrieve persistent cross-session memory for past mistakes on this asset.\n"
             "Format your argument as concise bullet points."
         )
         user = (
@@ -170,6 +172,8 @@ class MultiAgentBrain:
     ) -> dict:
         system = (
             "You are a Trader Agent. Consolidate analyst inputs and debate arguments, and propose a trading action.\n"
+            f"You have the following MCP tools available: {json.dumps(self.mcp_tools)}\n"
+            "CRITICAL: You MUST use the `check` MCP server to validate your trade parameters against the `financial_datasets` MCP server to prevent hallucination.\n"
             "Respond ONLY with a JSON object containing the following keys:\n"
             '{"action": "buy"|"sell"|"hold", "size": float, "stop_loss_pct": float, "take_profit_pct": float, '
             '"reason": "string explanation"}'

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
-import pandas as pd
+import polars as pl
 import numpy as np
 
 from godmode.core.config import Config, load_config
@@ -55,52 +55,68 @@ async def fetch_news(symbol: str) -> list[str]:
         return ["News feed connection error."]
 
 def compute_indicators(candles: list[list]) -> dict[str, float]:
-    """Helper to compute fast/slow EMA, RSI, VWAP, and BBs from raw CCXT OHLCV candles."""
-    df = pd.DataFrame(candles, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    """Helper to compute fast/slow EMA, RSI, VWAP, and BBs using Polars (Rust)."""
+    df = pl.DataFrame(candles, schema=["timestamp", "open", "high", "low", "close", "volume"], orient="row")
     
-    # 10-period and 20-period EMA
-    df["ema_fast"] = df["close"].ewm(span=10, adjust=False).mean()
-    df["ema_slow"] = df["close"].ewm(span=20, adjust=False).mean()
+    # EMA
+    df = df.with_columns([
+        pl.col("close").ewm_mean(span=10, adjust=False).alias("ema_fast"),
+        pl.col("close").ewm_mean(span=20, adjust=False).alias("ema_slow"),
+    ])
     
-    # 14-period RSI
-    delta = df["close"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+    # RSI
+    delta = pl.col("close").diff()
+    gain = pl.when(delta > 0).then(delta).otherwise(0).rolling_mean(window_size=14)
+    loss = pl.when(delta < 0).then(-delta).otherwise(0).rolling_mean(window_size=14)
     rs = gain / (loss + 1e-9)
-    df["rsi"] = 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+    df = df.with_columns(rsi.alias("rsi"))
 
     # Bollinger Bands
-    df['std'] = df['close'].rolling(window=20).std()
-    df['bb_upper'] = df['ema_slow'] + (df['std'] * 2)
-    df['bb_lower'] = df['ema_slow'] - (df['std'] * 2)
+    std = pl.col("close").rolling_std(window_size=20)
+    df = df.with_columns([
+        (pl.col("ema_slow") + (std * 2)).alias("bb_upper"),
+        (pl.col("ema_slow") - (std * 2)).alias("bb_lower")
+    ])
 
     # VWAP
-    df['typical_price'] = (df['high'] + df['low'] + df['close']) / 3
-    df['vwap'] = (df['typical_price'] * df['volume']).cumsum() / (df['volume'].cumsum() + 1e-9)
+    typical_price = (pl.col("high") + pl.col("low") + pl.col("close")) / 3
+    vwap = (typical_price * pl.col("volume")).cum_sum() / (pl.col("volume").cum_sum() + 1e-9)
+    df = df.with_columns(vwap.alias("vwap"))
     
     # Pivot Points
-    rolling_high = df['high'].rolling(window=14).max()
-    rolling_low = df['low'].rolling(window=14).min()
-    df['pivot'] = (rolling_high + rolling_low + df['close']) / 3
-    df['r1'] = (2 * df['pivot']) - rolling_low
-    df['s1'] = (2 * df['pivot']) - rolling_high
+    rolling_high = pl.col("high").rolling_max(window_size=14)
+    rolling_low = pl.col("low").rolling_min(window_size=14)
+    pivot = (rolling_high + rolling_low + pl.col("close")) / 3
+    r1 = (2 * pivot) - rolling_low
+    s1 = (2 * pivot) - rolling_high
     
-    last = df.iloc[-1]
+    df = df.with_columns([
+        pivot.alias("pivot"),
+        r1.alias("r1"),
+        s1.alias("s1")
+    ])
+    
+    last = df.row(-1, named=True)
+    def safe_float(val, default):
+        return float(val) if val is not None and not np.isnan(val) else float(default)
+        
+    c = last["close"]
     return {
         "open": float(last["open"]),
         "high": float(last["high"]),
         "low": float(last["low"]),
-        "close": float(last["close"]),
+        "close": float(c),
         "volume": float(last["volume"]),
-        "rsi": float(last["rsi"]) if not pd.isna(last["rsi"]) else 50.0,
-        "ema_fast": float(last["ema_fast"]) if not pd.isna(last["ema_fast"]) else float(last["close"]),
-        "ema_slow": float(last["ema_slow"]) if not pd.isna(last["ema_slow"]) else float(last["close"]),
-        "bb_upper": float(last["bb_upper"]) if not pd.isna(last["bb_upper"]) else float(last["close"]),
-        "bb_lower": float(last["bb_lower"]) if not pd.isna(last["bb_lower"]) else float(last["close"]),
-        "vwap": float(last["vwap"]) if not pd.isna(last["vwap"]) else float(last["close"]),
-        "pivot": float(last["pivot"]) if not pd.isna(last["pivot"]) else float(last["close"]),
-        "r1": float(last["r1"]) if not pd.isna(last["r1"]) else float(last["close"]),
-        "s1": float(last["s1"]) if not pd.isna(last["s1"]) else float(last["close"]),
+        "rsi": safe_float(last["rsi"], 50.0),
+        "ema_fast": safe_float(last["ema_fast"], c),
+        "ema_slow": safe_float(last["ema_slow"], c),
+        "bb_upper": safe_float(last["bb_upper"], c),
+        "bb_lower": safe_float(last["bb_lower"], c),
+        "vwap": safe_float(last["vwap"], c),
+        "pivot": safe_float(last["pivot"], c),
+        "r1": safe_float(last["r1"], c),
+        "s1": safe_float(last["s1"], c),
     }
 
 
