@@ -1,41 +1,45 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
 
 :root {
-    --bg-base: #06080c;
-    --bg-surface: rgba(10, 15, 26, 0.45);
-    --bg-surface-hover: rgba(16, 24, 40, 0.65);
+    /* Google Labs DESIGN.md HSL Token System */
+    --bg-base: hsl(220, 45%, 4%);
+    --bg-surface: hsla(220, 35%, 8%, 0.65);
+    --bg-surface-hover: hsla(220, 35%, 12%, 0.80);
+    --bg-surface-elevated: hsla(220, 30%, 14%, 0.90);
     
-    --text-primary: #ffffff;
-    --text-secondary: #94a3b8;
-    --text-muted: #475569;
+    --text-primary: hsl(0, 0%, 100%);
+    --text-secondary: hsl(215, 20%, 75%);
+    --text-muted: hsl(215, 15%, 50%);
+    --text-amber: hsl(38, 100%, 50%);
 
-    --border-subtle: rgba(255, 255, 255, 0.04);
-    --border-highlight: rgba(255, 255, 255, 0.12);
+    --border-subtle: hsla(220, 20%, 100%, 0.08);
+    --border-highlight: hsla(185, 100%, 50%, 0.35);
+    --border-amber: hsla(38, 100%, 50%, 0.40);
 
-    --accent-primary: #00ff87; /* Neon Emerald */
-    --accent-primary-glow: rgba(0, 255, 135, 0.2);
+    --accent-primary: hsl(152, 100%, 50%); /* Neon Emerald Bull */
+    --accent-primary-glow: hsla(152, 100%, 50%, 0.25);
     
-    --accent-danger: #ff3366; /* Neon Rose/Red */
-    --accent-danger-glow: rgba(255, 51, 102, 0.2);
+    --accent-danger: hsl(348, 100%, 55%); /* Neon Crimson Bear */
+    --accent-danger-glow: hsla(348, 100%, 55%, 0.25);
 
-    --accent-info: #00e5ff; /* Cyber Cyan */
-    --accent-info-glow: rgba(0, 229, 255, 0.2);
+    --accent-info: hsl(185, 100%, 50%); /* Telemetry Cyan */
+    --accent-info-glow: hsla(185, 100%, 50%, 0.20);
 
-    --accent-purple: #bd00ff; /* Neon Purple */
-    --accent-purple-glow: rgba(189, 0, 255, 0.2);
+    --accent-purple: hsl(275, 100%, 65%); /* Neural Network / RL */
+    --accent-purple-glow: hsla(275, 100%, 65%, 0.25);
 
-    --accent-warn: #ff9f00; /* Hazard Orange */
-    --accent-warn-glow: rgba(255, 159, 0, 0.2);
+    --accent-warn: hsl(38, 100%, 50%); /* Bloomberg Amber */
+    --accent-warn-glow: hsla(38, 100%, 50%, 0.25);
 
     --font-sans: 'Outfit', 'Inter', system-ui, sans-serif;
     --font-mono: 'JetBrains Mono', 'Space Mono', monospace;
 
-    --radius-sm: 6px;
-    --radius-md: 12px;
-    --radius-lg: 20px;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
 
-    --transition-fast: 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-    --transition-smooth: 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-fast: 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+    --transition-smooth: 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 * {

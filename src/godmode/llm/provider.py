@@ -22,6 +22,7 @@ from typing import Any, Optional
 from godmode.core.config import Config, ModelsConfig, load_config
 from godmode.core.db import get_db
 from godmode.core.logging import get_logger
+from godmode.llm.free_router import get_free_router
 from godmode.core.timeutil import utcnow_iso
 
 log = get_logger("llm")
@@ -169,12 +170,6 @@ class LLMClient:
             raise LLMError(f"litellm is not importable: {self._import_error}")
 
         candidates = self._candidates(role)
-        if not candidates:
-            raise LLMError(
-                f"No LLM model is available for role '{role}'. "
-                f"Add an API key to .env (run `godmode setup`)."
-            )
-
         temperature_val, max_tokens_val, timeout_val = self._params(temperature, max_tokens)
         last_err: Optional[Exception] = None
 
@@ -194,7 +189,23 @@ class LLMClient:
                 log.warning(f"LLM model {model} failed ({type(exc).__name__}): {exc}; trying next")
                 continue
 
-        raise LLMError(f"All LLM candidates failed for role '{role}': {last_err}")
+        # Fallback to FreeLLMRouter (OpenRouter Free / Groq Free / Gemini Free)
+        log.info(f"Attempting free-tier LLM fallback for role '{role}'")
+        sys_prompt = messages[0]["content"] if messages and messages[0].get("role") == "system" else ""
+        usr_prompt = messages[-1]["content"] if messages else ""
+        free_text = get_free_router().complete(sys_prompt, usr_prompt)
+        if free_text:
+            return LLMResponse(
+                model="free-tier-fallback",
+                role=role,
+                text=free_text,
+                tokens_in=len(usr_prompt) // 4,
+                tokens_out=len(free_text) // 4,
+                latency_ms=100,
+                cost_usd=0.0
+            )
+
+        raise LLMError(f"All LLM candidates and free fallbacks failed for role '{role}': {last_err}")
 
     def _call_with_retry(self, model, messages, temperature, max_tokens, timeout, json_mode):
         from tenacity import (

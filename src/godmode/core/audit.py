@@ -20,9 +20,51 @@ from godmode.core.timeutil import utcnow_iso
 _SENSITIVE = re.compile(r"(api[_-]?key|secret|token|password|private[_-]?key)", re.IGNORECASE)
 _REDACTED = "***redacted***"
 
+# Defense-in-depth: scan string VALUES for common API key formats. Even when
+# the key name is innocuous (e.g. "input_text" wrapping an LLM prompt),
+# key-like substrings should never reach the audit log.
+_VALUE_PATTERNS = [
+    # Anthropic: sk-ant-api03-... / sk-ant-...
+    re.compile(r"sk-ant-api\d{2}-[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"),
+    # OpenAI: sk-proj-... / sk-... (long)
+    re.compile(r"sk-proj-[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"sk-[A-Za-z0-9]{40,}"),
+    # Generic Bearer tokens (case-insensitive prefix)
+    re.compile(r"(?i)bearer\s+[A-Za-z0-9_\-\.]{20,}"),
+    # Google API keys (AIzaSy...)
+    re.compile(r"AIza[A-Za-z0-9_\-]{30,}"),
+    # Groq tokens (gsk_...)
+    re.compile(r"gsk_[A-Za-z0-9]{28,}"),
+    # NVIDIA NIM keys (nvapi-...)
+    re.compile(r"nvapi-[A-Za-z0-9_\-]{20,}"),
+    # Generic JWT (eyJ...)
+    re.compile(r"eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}"),
+    # Slack-style xoxb- tokens
+    re.compile(r"xox[abprs]-[A-Za-z0-9\-]{10,}"),
+    # GitHub PATs (ghp_, gho_, ghs_, ghu_, ghr_)
+    re.compile(r"gh[opstur]_[A-Za-z0-9]{30,}"),
+    # Long hex runs (>=32 chars) — covers most CLI tokens, TOTP secrets, etc.
+    re.compile(r"\b[a-fA-F0-9]{40,}\b"),
+]
+
+
+def _redact_value(value: Any) -> Any:
+    """Redact secrets embedded inside STRING values (defense-in-depth).
+    Concatenating key-format patterns onto opaque strings catches leaked
+    values that the recursive key-name scanner alone would miss.
+    """
+    if isinstance(value, str):
+        out = value
+        for pat in _VALUE_PATTERNS:
+            out = pat.sub(_REDACTED, out)
+        return out
+    return value
+
 
 def _redact(value: Any) -> Any:
-    """Recursively redact values whose key name looks secret."""
+    """Recursively redact values whose key name looks secret AND strip
+    common API-key formats out of string values (defense-in-depth)."""
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
@@ -33,7 +75,7 @@ def _redact(value: Any) -> Any:
         return out
     if isinstance(value, (list, tuple)):
         return [_redact(v) for v in value]
-    return value
+    return _redact_value(value)
 
 
 class AuditLog:

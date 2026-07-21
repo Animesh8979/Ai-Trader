@@ -16,6 +16,7 @@ from typing import Optional
 from godmode.core.config import Config, load_config
 from godmode.core.logging import get_logger
 from godmode.core.money import D
+from godmode.execution.adapter import BaseBrokerAdapter
 
 log = get_logger("execution.crypto")
 
@@ -36,7 +37,7 @@ class VenueCreds:
     api_secret: str
 
 
-class CryptoCcxtAdapter:
+class CryptoCcxtAdapter(BaseBrokerAdapter):
     def __init__(self, venue: str, config: Optional[Config] = None):
         if venue not in SUPPORTED_VENUES:
             raise CryptoConnectivityError(
@@ -108,6 +109,18 @@ class CryptoCcxtAdapter:
         bal = self.fetch_balance()
         free = (bal.get("free") or {}).get(currency)
         return D(str(free)) if free is not None else D("0")
+        
+    def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> list:
+        return self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
+        
+    def create_order(self, symbol: str, type: str, side: str, amount: str, params: Optional[dict] = None) -> dict:
+        return self.exchange.create_order(symbol, type, side, float(amount), params=params)
+
+    def fetch_position_qty(self, symbol: str) -> Decimal:
+        base_asset = symbol.split("/")[0]
+        bal = self.fetch_balance()
+        qty = (bal.get(base_asset) or {}).get("total")
+        return D(str(qty)) if qty is not None else D("0")
 
     # -- write (probe only) ---------------------------------------------- #
     def place_and_cancel_probe(self, symbol: str, min_notional: Decimal = D("12")) -> dict:

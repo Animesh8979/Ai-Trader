@@ -18,10 +18,10 @@ class EdgeDataPipeline:
         Query verilexdata MCP server for whale movements.
         Focuses on known exchange hot wallets and tagged whale entities.
         Threshold: > $10,000,000 USD equivalent.
+        Returns [] on any failure (NEVER fake data — honest failure only).
         """
         log.info(f"Fetching whale movements for {asset}...")
         try:
-            # Simulated MCP call - in reality, we'd use self.mcp_client.call_tool(...)
             result = self.mcp_client.call_tool(
                 server_name="verilexdata",
                 tool_name="get_whale_transfers",
@@ -29,15 +29,14 @@ class EdgeDataPipeline:
             )
             return result.get("transfers", [])
         except Exception as e:
-            log.warning(f"Failed to fetch whale movements (mocking data): {e}")
-            return [
-                {"asset": asset, "amount": 500, "usd_value": 15000000, "from": "unknown", "to": "binance_hot_1", "type": "exchange_inflow"}
-            ]
+            log.warning(f"Failed to fetch whale movements (returning empty list): {e}")
+            return []
 
     def get_sec_filings(self, ticker: str) -> List[Dict[str, Any]]:
         """
         Query katzilla MCP server for macro SEC data.
         Prioritizes 8-K and 13F filings. Extracts structured JSON payload.
+        Returns [] on any failure (NEVER fake data — honest failure only).
         """
         log.info(f"Fetching SEC filings for {ticker}...")
         try:
@@ -48,14 +47,13 @@ class EdgeDataPipeline:
             )
             return result.get("filings", [])
         except Exception as e:
-            log.warning(f"Failed to fetch SEC filings (mocking data): {e}")
-            return [
-                {"ticker": ticker, "type": "8-K", "date": "2026-07-01", "summary": "Company announces major strategic partnership."}
-            ]
+            log.warning(f"Failed to fetch SEC filings (returning empty list): {e}")
+            return []
 
     def get_macro_inflation_data(self) -> Dict[str, Any]:
         """
         Query katzilla MCP server for FRED inflation metrics.
+        Returns {} on any failure (NEVER fake data — honest failure only).
         """
         try:
             result = self.mcp_client.call_tool(
@@ -65,5 +63,5 @@ class EdgeDataPipeline:
             )
             return result
         except Exception as e:
-            log.warning(f"Failed to fetch FRED metrics (mocking data): {e}")
-            return {"CPI": "3.1%", "PPI": "2.8%"}
+            log.warning(f"Failed to fetch FRED metrics (returning empty dict): {e}")
+            return {}

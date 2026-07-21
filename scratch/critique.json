@@ -1,0 +1,18 @@
+{
+    "flaws": [
+        {
+            "location": "D:\\Ai trader\\src\\godmode\\strategies\\walk_forward_evaluator.py, line 38 and 45",
+            "impact": "Microscopic return variance (from floating point noise) circumvents the variance > 0 check but produces a standard deviation much smaller than 1e-6 (e.g., 1e-16). This causes Sharpe and Sortino ratios to explode to quadrillions, falsely flagging flat strategies as highly robust.",
+            "reproduction": "Evaluate a return list with near-constant values and slight floating point variations: returns = [0.01 + 1e-16, 0.01 - 1e-16] * 5 + [0.01] * 10"
+        },
+        {
+            "location": "D:\\Ai trader\\src\\godmode\\strategies\\walk_forward_evaluator.py, run_purged_walk_forward method",
+            "impact": "Unsanitized toxic data (NaN or Inf values from erratic prints/flash crashes) propagates through sum() and list comprehensions. This turns metrics like Sharpe, Drawdown, and DSR p-value into NaN or Inf, breaking any downstream threshold logic.",
+            "reproduction": "Feed a returns list containing non-finite values (e.g., from an upstream failure or extreme division): returns = [0.01, float(\"nan\"), float(\"inf\"), -0.99] * 5"
+        }
+    ],
+    "remediations": [
+        "Changed stdev calculations to enforce a hard minimum floor: stdev = max(1e-6, math.sqrt(max(0.0, variance)))",
+        "Added input sanitization at the beginning of run_purged_walk_forward to filter out toxic data: returns = [r for r in returns if math.isfinite(r)]"
+    ]
+}

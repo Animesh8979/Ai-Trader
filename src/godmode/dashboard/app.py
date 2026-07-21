@@ -14,6 +14,7 @@ from godmode.core.config import load_config
 from godmode.core.db import get_db
 from godmode.core.killswitch import get_kill_switch
 from godmode.core.logging import get_logger
+from godmode.data.live_intelligence import get_live_intelligence
 
 log = get_logger("dashboard")
 
@@ -97,16 +98,7 @@ class BacktestRequest(BaseModel):
     end: Optional[str] = None
 
 def run_backtest_thread(strategy: str, data: str, start: Optional[str], end: Optional[str]):
-    from godmode.backtest.runner import run_backtest
-    try:
-        run_backtest(
-            strategy_name=strategy,
-            data_path=data,
-            start_date=start,
-            end_date=end
-        )
-    except Exception as exc:
-        log.error(f"Backtest run failed: {exc}")
+    log.warning("Backtesting has been removed in this version in favor of live-paper trading.")
 
 @app.on_event("startup")
 async def startup_event():
@@ -151,6 +143,11 @@ def get_status_api():
     return _get_system_status()
 
 
+@app.get("/api/intelligence")
+def get_intelligence_api():
+    return get_live_intelligence().get_combined_intelligence()
+
+
 @app.get("/api/orders")
 def get_orders_api():
     db = get_db()
@@ -182,19 +179,8 @@ def get_kill_events_api():
 
 
 @app.post("/api/backtest/run")
-def run_backtest_api(req: BacktestRequest, background_tasks: BackgroundTasks):
-    data_path = Path(req.data_path)
-    if not data_path.exists():
-        return {"status": "error", "message": f"Candle data file not found: {req.data_path}"}
-    
-    background_tasks.add_task(
-        run_backtest_thread,
-        req.strategy,
-        req.data_path,
-        req.start,
-        req.end
-    )
-    return {"status": "ok", "message": "Backtest initiated successfully"}
+def run_backtest_api(req: BacktestRequest):
+    return {"status": "error", "message": "Backtesting has been removed in this version in favor of live-paper trading."}
 
 
 @app.post("/api/stop")

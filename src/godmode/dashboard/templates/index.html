@@ -65,6 +65,9 @@
     <!-- --- Navigation Tabs --- -->
     <nav class="nav-tabs gsap-reveal">
         <button class="tab-btn magnetic-btn active" onclick="switchTab('overview')">OVERVIEW</button>
+        <button class="tab-btn magnetic-btn" onclick="switchTab('dual-monitor')">⚡ DUAL MONITOR</button>
+        <button class="tab-btn magnetic-btn" onclick="switchTab('indian-desk')">🇮🇳 INDIAN DESK (NSE/BSE)</button>
+        <button class="tab-btn magnetic-btn" onclick="switchTab('international-desk')">🌐 INTERNATIONAL DESK</button>
         <button class="tab-btn magnetic-btn" onclick="switchTab('agents')">NEURAL NET</button>
         <button class="tab-btn magnetic-btn" onclick="switchTab('risk')">RISK DESK</button>
         <button class="tab-btn magnetic-btn" onclick="switchTab('execution')">EXECUTION</button>
@@ -138,6 +141,175 @@
         </div>
     </div>
 
+    <!-- Dual Monitor Split-Screen Tab -->
+    <div id="tab-dual-monitor" class="tab-content">
+        <div class="dashboard-grid">
+            <!-- LEFT HALF: INDIAN MARKETS & STOCKS -->
+            <div class="card col-6 gsap-stagger" style="border-color: #00F5D4;">
+                <div class="card-header" style="background: rgba(0, 245, 212, 0.08);">
+                    <span class="card-title" style="color: #00F5D4;">🇮🇳 SCREEN 1: INDIAN MARKETS (NSE/BSE)</span>
+                    <span class="badge" style="background: rgba(0, 245, 212, 0.2); color: #00F5D4;">LIVE SHOONYA / PUBLIC FEED</span>
+                </div>
+                <div style="padding: 16px;">
+                    <!-- Indian Indices Grid -->
+                    <div class="stats-grid" id="indian-indices-container" style="grid-template-columns: repeat(3, 1fr); margin-bottom: 16px;">
+                        <div class="stat-box" style="border-left: 3px solid #00F5D4;">
+                            <span class="stat-label">NIFTY 50</span>
+                            <span class="stat-value" id="dual-nifty-val">--</span>
+                        </div>
+                        <div class="stat-box" style="border-left: 3px solid #00F5D4;">
+                            <span class="stat-label">SENSEX</span>
+                            <span class="stat-value" id="dual-sensex-val">--</span>
+                        </div>
+                        <div class="stat-box" style="border-left: 3px solid #00F5D4;">
+                            <span class="stat-label">BANK NIFTY</span>
+                            <span class="stat-value" id="dual-banknifty-val">--</span>
+                        </div>
+                    </div>
+                    <!-- Indian Top Stocks Table -->
+                    <div class="table-container" style="margin-bottom: 16px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>SYMBOL</th>
+                                    <th>LTP (₹)</th>
+                                    <th>24H CHG</th>
+                                    <th>VOLUME</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dual-indian-stocks-body">
+                                <tr><td colspan="4" class="text-center">Awaiting telemetry...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Indian Breaking News Feed -->
+                    <div class="terminal" id="dual-indian-news" style="height: 180px;">
+                        <div class="log-line system">[NSE WIRE] Loading live Indian financial headlines...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT HALF: INTERNATIONAL MARKETS & CRYPTO -->
+            <div class="card col-6 gsap-stagger" style="border-color: #7B2CBF;">
+                <div class="card-header" style="background: rgba(123, 44, 191, 0.12);">
+                    <span class="card-title" style="color: #E0AAFF;">🌐 SCREEN 2: INTERNATIONAL & CRYPTO</span>
+                    <span class="badge" style="background: rgba(123, 44, 191, 0.3); color: #E0AAFF;">LIVE BINANCE / ALTERNATIVE.ME</span>
+                </div>
+                <div style="padding: 16px;">
+                    <!-- Fear & Greed + Macro Cards -->
+                    <div class="stats-grid" id="intl-metrics-container" style="grid-template-columns: repeat(2, 1fr); margin-bottom: 16px;">
+                        <div class="stat-box" style="border-left: 3px solid #FF0055;">
+                            <span class="stat-label">CRYPTO FEAR & GREED</span>
+                            <span class="stat-value" id="dual-fng-val">--</span>
+                        </div>
+                        <div class="stat-box" style="border-left: 3px solid #7B2CBF;">
+                            <span class="stat-label">GLOBAL MACRO REGIME</span>
+                            <span class="stat-value" id="dual-macro-regime">BULLISH EXPANSION</span>
+                        </div>
+                    </div>
+                    <!-- Crypto Top Assets Table -->
+                    <div class="table-container" style="margin-bottom: 16px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>PAIR</th>
+                                    <th>PRICE ($)</th>
+                                    <th>24H CHG</th>
+                                    <th>24H RANGE</th>
+                                </tr>
+                            </thead>
+                            <tbody id="dual-crypto-assets-body">
+                                <tr><td colspan="4" class="text-center">Awaiting telemetry...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Institutional Level 2 DOM & Volume Profile Canvas -->
+                    <div style="margin-bottom: 16px;">
+                        <canvas id="orderbook-dom-canvas" style="width: 100%; height: 240px; border: 1px solid rgba(0, 240, 255, 0.2); border-radius: 6px;"></canvas>
+                    </div>
+                    <!-- International Breaking News Feed -->
+                    <div class="terminal" id="dual-intl-news" style="height: 180px;">
+                        <div class="log-line system">[GLOBAL WIRE] Loading live international headlines...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Indian Desk Fullscreen Tab -->
+    <div id="tab-indian-desk" class="tab-content">
+        <div class="dashboard-grid">
+            <div class="card col-8 gsap-stagger" style="border-color: #00F5D4;">
+                <div class="card-header">
+                    <span class="card-title">INDIAN EQUITIES (NSE & BSE TERMINAL)</span>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>BLUECHIP SYMBOL</th>
+                                    <th>PRICE (₹)</th>
+                                    <th>CHANGE %</th>
+                                    <th>VOLUME</th>
+                                    <th>ACTION SIGNAL</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fullscreen-indian-body">
+                                <tr><td colspan="5" class="text-center">Loading Indian Market Data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card col-4 gsap-stagger">
+                <div class="card-header">
+                    <span class="card-title">INDIAN ECONOMIC NEWS WIRE</span>
+                </div>
+                <div class="terminal" id="fullscreen-indian-news" style="height: 340px;">
+                    <div class="log-line system">Awaiting live NSE/RBI news pulse...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- International Desk Fullscreen Tab -->
+    <div id="tab-international-desk" class="tab-content">
+        <div class="dashboard-grid">
+            <div class="card col-8 gsap-stagger" style="border-color: #7B2CBF;">
+                <div class="card-header">
+                    <span class="card-title">INTERNATIONAL CRYPTO & MACRO TERMINAL</span>
+                </div>
+                <div style="padding: 20px;">
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>GLOBAL ASSET</th>
+                                    <th>MARKET PRICE ($)</th>
+                                    <th>24H CHANGE</th>
+                                    <th>RANGE (LOW - HIGH)</th>
+                                    <th>MOMENTUM SIGNAL</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fullscreen-intl-body">
+                                <tr><td colspan="5" class="text-center">Loading Global Market Data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="card col-4 gsap-stagger">
+                <div class="card-header">
+                    <span class="card-title">INTERNATIONAL NEWS WIRE</span>
+                </div>
+                <div class="terminal" id="fullscreen-intl-news" style="height: 340px;">
+                    <div class="log-line system">Awaiting global macro & ETF headlines...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Agent Tab -->
     <div id="tab-agents" class="tab-content">
         <div class="dashboard-grid">
@@ -197,7 +369,10 @@
             <!-- Debate Arena (Right Pane) -->
             <div class="card col-8 gsap-stagger">
                 <div class="card-header">
-                    <span class="card-title">NEURAL LINK DEBATE LOG</span>
+                    <span class="card-title">NEURAL LINK DEBATE LOG & DAG TOPOLOGY</span>
+                </div>
+                <div style="padding: 12px;">
+                    <canvas id="swarm-dag-canvas" style="width: 100%; height: 200px; border: 1px solid rgba(0, 255, 170, 0.2); border-radius: 6px; margin-bottom: 12px;"></canvas>
                 </div>
                 <div id="agent-debate-container" class="agent-debate-container">
                     <p style="text-align: center; color: var(--text-secondary); padding: 48px; font-family: var(--font-mono); font-size: 0.8rem;">[ NO SIGNAL DETECTED ]</p>
@@ -380,7 +555,9 @@
         </div>
     </div>
 
-    <!-- App Script -->
+    <!-- Institutional Canvas Visualizers -->
+    <script src="/static/orderbook_canvas.js"></script>
+    <script src="/static/swarm_dag.js"></script>
     <script src="/static/app.js"></script>
 </body>
 </html>

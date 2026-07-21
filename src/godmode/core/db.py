@@ -10,7 +10,7 @@ from __future__ import annotations
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any, Dict, Optional, Sequence
 
 from godmode.core import paths
 from godmode.core.timeutil import utcnow_iso
@@ -168,7 +168,32 @@ class Database:
         rows = self.query(sql, params)
         return rows[0] if rows else None
 
+    # Hard whitelist of insertable tables. The `insert()` method below does
+    # table-name interpolation (SQLite does not support parameterized table
+    # names), so we must GUARD against injection — only the canonical
+    # production tables are permitted.
+    _ALLOWED_TABLES = frozenset({
+        "runs", "orders", "fills", "positions", "decisions",
+        "agent_messages", "metrics", "kill_events", "audit",
+        "ohlcv",
+    })
+
     def insert(self, table: str, data: dict) -> int:
+        if table not in self._ALLOWED_TABLES:
+            raise ValueError(
+                f"insert(): table {table!r} not in whitelist. Refusing to "
+                f"interpolate unknown table names into SQL (injection guard)."
+            )
+        # Column names are also interpolated (SQLite doesn't parameterize them),
+        # so validate against the strict identifier regex [A-Za-z_][A-Za-z0-9_]*.
+        import re as _re
+        _ident_re = _re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+        for col in data.keys():
+            if not _ident_re.match(col):
+                raise ValueError(
+                    f"insert(): column name {col!r} is not a valid SQL identifier "
+                    f"(injection guard)."
+                )
         cols = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         sql = f"INSERT INTO {table} ({cols}) VALUES ({placeholders})"
@@ -194,6 +219,10 @@ class Database:
             "kill_events",
             {"ts": utcnow_iso(), "action": action, "reason": reason, "source": source},
         )
+
+    def get_position(self, venue: str, symbol: str) -> Optional[Dict[str, Any]]:
+        rows = self.query("SELECT * FROM positions WHERE venue = ? AND symbol = ?", (venue, symbol))
+        return dict(rows[0]) if rows else None
 
     def upsert_position(self, venue: str, symbol: str, qty: str, avg_price: str) -> None:
         self.execute(

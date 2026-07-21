@@ -204,3 +204,11 @@ def load_config(reload: bool = False) -> Config:
     cfg = Config(secrets=secrets, app=app, risk=risk, markets=markets, models=models)
     _CONFIG_CACHE = cfg
     return cfg
+
+
+def reset_config_cache() -> None:
+    """Drop the cached Config singleton (testing helper). NEXT call to
+    `load_config()` will re-read .env + yaml files.
+    """
+    global _CONFIG_CACHE
+    _CONFIG_CACHE = None

@@ -699,7 +699,140 @@ function addBacktestLogLine(source, text, level) {
     consoleBox.scrollTop = consoleBox.scrollHeight;
 }
 
+/* =========================================================================
+   9. LIVE DUAL-MONITOR INTELLIGENCE & NEWS HOSE (INDIAN & INTERNATIONAL)
+   ========================================================================= */
+async function fetchIntelligenceFeed() {
+    try {
+        const resp = await fetch('/api/intelligence');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (!data) return;
+
+        const indian = data.indian || {};
+        const intl = data.international || {};
+
+        // 1. Indian Indices
+        if (indian.indices) {
+            const nifty = indian.indices["NIFTY 50"];
+            const sensex = indian.indices["SENSEX"];
+            const bankNifty = indian.indices["BANK NIFTY"];
+            if (nifty && document.getElementById('dual-nifty-val')) {
+                document.getElementById('dual-nifty-val').innerHTML = `₹${nifty.price} <span style="font-size:0.75rem; color:${nifty.change_24h_pct >= 0 ? '#00F5D4':'#FF0055'}">(${nifty.change_24h_pct}%)</span>`;
+            }
+            if (sensex && document.getElementById('dual-sensex-val')) {
+                document.getElementById('dual-sensex-val').innerHTML = `₹${sensex.price} <span style="font-size:0.75rem; color:${sensex.change_24h_pct >= 0 ? '#00F5D4':'#FF0055'}">(${sensex.change_24h_pct}%)</span>`;
+            }
+            if (bankNifty && document.getElementById('dual-banknifty-val')) {
+                document.getElementById('dual-banknifty-val').innerHTML = `₹${bankNifty.price} <span style="font-size:0.75rem; color:${bankNifty.change_24h_pct >= 0 ? '#00F5D4':'#FF0055'}">(${bankNifty.change_24h_pct}%)</span>`;
+            }
+        }
+
+        // 2. Indian Stocks Table (Dual & Fullscreen)
+        if (indian.stocks) {
+            const rows = Object.entries(indian.stocks).map(([sym, info]) => {
+                const color = info.change_24h_pct >= 0 ? '#00F5D4' : '#FF0055';
+                return `<tr>
+                    <td style="font-weight:700; color:#00F5D4;">${sym}</td>
+                    <td>₹${info.price}</td>
+                    <td style="color:${color}; font-weight:700;">${info.change_24h_pct >= 0 ? '+'+info.change_24h_pct : info.change_24h_pct}%</td>
+                    <td>${info.volume || '--'}</td>
+                </tr>`;
+            }).join('');
+
+            const fullRows = Object.entries(indian.stocks).map(([sym, info]) => {
+                const color = info.change_24h_pct >= 0 ? '#00F5D4' : '#FF0055';
+                return `<tr>
+                    <td style="font-weight:700; color:#00F5D4;">${sym}</td>
+                    <td>₹${info.price}</td>
+                    <td style="color:${color}; font-weight:700;">${info.change_24h_pct >= 0 ? '+'+info.change_24h_pct : info.change_24h_pct}%</td>
+                    <td>${info.volume || '--'}</td>
+                    <td><span class="badge" style="background:rgba(0,245,212,0.2); color:#00F5D4;">BUY SIGNAL</span></td>
+                </tr>`;
+            }).join('');
+
+            if (document.getElementById('dual-indian-stocks-body')) document.getElementById('dual-indian-stocks-body').innerHTML = rows;
+            if (document.getElementById('fullscreen-indian-body')) document.getElementById('fullscreen-indian-body').innerHTML = fullRows;
+        }
+
+        // 3. Indian News Wire
+        if (indian.news) {
+            const renderNews = (list) => list.map(item => {
+                const c = item.sentiment === 'BULLISH' ? '#00F5D4' : (item.sentiment === 'BEARISH' ? '#FF0055' : '#E0AAFF');
+                return `<div class="log-line info"><span class="log-time">[${item.ts}]</span><span class="log-src" style="color:${c};">[${item.source}]</span> ${item.headline}</div>`;
+            }).join('');
+
+            if (document.getElementById('dual-indian-news')) document.getElementById('dual-indian-news').innerHTML = renderNews(indian.news);
+            if (document.getElementById('fullscreen-indian-news')) document.getElementById('fullscreen-indian-news').innerHTML = renderNews(indian.news);
+        }
+
+        // 4. International Fear & Greed + Assets
+        if (intl.fear_greed && document.getElementById('dual-fng-val')) {
+            document.getElementById('dual-fng-val').innerHTML = `${intl.fear_greed.score} - <span style="color:#00F5D4;">${intl.fear_greed.label.toUpperCase()}</span>`;
+        }
+
+        if (intl.assets) {
+            const intlRows = Object.entries(intl.assets).map(([pair, info]) => {
+                const color = info.change_24h_pct >= 0 ? '#00F5D4' : '#FF0055';
+                return `<tr>
+                    <td style="font-weight:700; color:#E0AAFF;">${pair}</td>
+                    <td>$${info.price}</td>
+                    <td style="color:${color}; font-weight:700;">${info.change_24h_pct >= 0 ? '+'+info.change_24h_pct : info.change_24h_pct}%</td>
+                    <td>$${info.low_24h} - $${info.high_24h}</td>
+                </tr>`;
+            }).join('');
+
+            const fullIntlRows = Object.entries(intl.assets).map(([pair, info]) => {
+                const color = info.change_24h_pct >= 0 ? '#00F5D4' : '#FF0055';
+                return `<tr>
+                    <td style="font-weight:700; color:#E0AAFF;">${pair}</td>
+                    <td>$${info.price}</td>
+                    <td style="color:${color}; font-weight:700;">${info.change_24h_pct >= 0 ? '+'+info.change_24h_pct : info.change_24h_pct}%</td>
+                    <td>$${info.low_24h} - $${info.high_24h}</td>
+                    <td><span class="badge" style="background:rgba(123,44,191,0.3); color:#E0AAFF;">MOMENTUM BULL</span></td>
+                </tr>`;
+            }).join('');
+
+            if (document.getElementById('dual-crypto-assets-body')) document.getElementById('dual-crypto-assets-body').innerHTML = intlRows;
+            if (document.getElementById('fullscreen-intl-body')) document.getElementById('fullscreen-intl-body').innerHTML = fullIntlRows;
+        }
+
+        // 5. International News Wire
+        if (intl.news) {
+            const renderIntlNews = (list) => list.map(item => {
+                const c = item.sentiment === 'BULLISH' ? '#00F5D4' : (item.sentiment === 'BEARISH' ? '#FF0055' : '#E0AAFF');
+                return `<div class="log-line info"><span class="log-time">[${item.ts}]</span><span class="log-src" style="color:${c};">[${item.source}]</span> ${item.headline}</div>`;
+            }).join('');
+
+            if (document.getElementById('dual-intl-news')) document.getElementById('dual-intl-news').innerHTML = renderIntlNews(intl.news);
+            if (document.getElementById('fullscreen-intl-news')) document.getElementById('fullscreen-intl-news').innerHTML = renderIntlNews(intl.news);
+        }
+
+    } catch (err) {
+        console.error('Intelligence feed error:', err);
+    }
+}
+
 // Initial triggers
 runEntranceAnimations();
 connectWebSocket();
 startClock();
+fetchIntelligenceFeed();
+setInterval(fetchIntelligenceFeed, 3000);
+
+// Initialize Level 2 Orderbook DOM & Swarm Debate DAG Canvas Visualizers
+let orderbookDOM = null;
+let swarmDAG = null;
+window.addEventListener('DOMContentLoaded', () => {
+    if (window.OrderbookCanvasRenderer) {
+        orderbookDOM = new window.OrderbookCanvasRenderer('orderbook-dom-canvas');
+        // Initial simulated depth ladder around BTC price
+        const btcPrice = 64200;
+        const mockBids = Array.from({length: 10}, (_, i) => [btcPrice - (i + 1) * 5, (Math.random() * 2.5 + 0.2).toFixed(4)]);
+        const mockAsks = Array.from({length: 10}, (_, i) => [btcPrice + (i + 1) * 5, (Math.random() * 2.5 + 0.2).toFixed(4)]);
+        orderbookDOM.updateData(mockBids, mockAsks);
+    }
+    if (window.SwarmDAGVisualizer) {
+        swarmDAG = new window.SwarmDAGVisualizer('swarm-dag-canvas');
+    }
+});

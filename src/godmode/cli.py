@@ -117,16 +117,6 @@ def _cmd_dashboard(args) -> int:
     return 0
 
 
-def _cmd_backtest(args) -> int:
-    from godmode.backtest.runner import run_backtest
-
-    return run_backtest(
-        strategy_name=args.strategy,
-        data_path=args.data,
-        start_date=args.start,
-        end_date=args.end,
-    )
-
 
 _DISPATCH = {
     "setup": _cmd_setup,
@@ -136,7 +126,6 @@ _DISPATCH = {
     "resume": _cmd_resume,
     "run": _cmd_run,
     "dashboard": _cmd_dashboard,
-    "backtest": _cmd_backtest,
     "version": _cmd_version,
 }
 
@@ -166,12 +155,6 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = sub.add_parser("dashboard", help="launch the local web dashboard")
     dashboard.add_argument("--host", default="127.0.0.1", help="dashboard server host")
     dashboard.add_argument("--port", type=int, default=8000, help="dashboard server port")
-    
-    backtest = sub.add_parser("backtest", help="run a historical backtest using NautilusTrader")
-    backtest.add_argument("--strategy", default="ema_crossover", help="strategy name")
-    backtest.add_argument("--data", required=True, help="path to historical candle CSV file")
-    backtest.add_argument("--start", help="start date (YYYY-MM-DD)")
-    backtest.add_argument("--end", help="end date (YYYY-MM-DD)")
 
     sub.add_parser("version", help="print version")
     return parser
@@ -183,7 +166,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     from godmode.core.bootstrap import ensure_utf8_console
+    from godmode.core.binance_guard import enforce as enforce_binance_testnet
 
+    enforce_binance_testnet()
     ensure_utf8_console()
     setup_logging()
 
