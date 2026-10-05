@@ -117,3 +117,44 @@ def test_dashboard_api_backtest(client, tmp_path):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
+
+def test_dashboard_api_singularity_status(client):
+    response = client.get("/api/singularity/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert "generation" in data
+    assert "iterations_run" in data
+    assert "active_parameters" in data
+    assert "total_fills_recorded" in data
+
+
+def test_dashboard_api_agent_chat_commands(client):
+    # Test /status command
+    res_status = client.post("/api/agent/chat", json={"message": "/status"})
+    assert res_status.status_code == 200
+    assert res_status.json()["action_executed"] == "STATUS"
+    assert "SYSTEM TELEMETRY REPORT" in res_status.json()["reply"]
+
+    # Test /singularity command
+    res_sing = client.post("/api/agent/chat", json={"message": "/singularity"})
+    assert res_sing.status_code == 200
+    assert res_sing.json()["action_executed"] == "SINGULARITY"
+    assert "ELOS SINGULARITY LOOP TELEMETRY" in res_sing.json()["reply"]
+
+    # Test /backtest command
+    res_bt = client.post("/api/agent/chat", json={"message": "/backtest"})
+    assert res_bt.status_code == 200
+    assert res_bt.json()["action_executed"] == "BACKTEST_INFO"
+
+    # Test persona="singularity"
+    res_p_sing = client.post("/api/agent/chat", json={"message": "how is learning going?", "persona": "singularity"})
+    assert res_p_sing.status_code == 200
+    assert "SINGULARITY SELF-CALIBRATING CORE" in res_p_sing.json()["reply"]
+
+    # Test persona="oracle" (Jev 6-judgment fallback)
+    res_p_oracle = client.post("/api/agent/chat", json={"message": "what is market structure?", "persona": "oracle"})
+    assert res_p_oracle.status_code == 200
+    assert "OCTODAMUS ORACLE CONSENSUS" in res_p_oracle.json()["reply"]
+    assert "Jev 6-Judgment System 1 Engine" in res_p_oracle.json()["reply"]
+
+

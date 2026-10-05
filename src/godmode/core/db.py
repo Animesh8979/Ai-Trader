@@ -220,6 +220,37 @@ class Database:
             {"ts": utcnow_iso(), "action": action, "reason": reason, "source": source},
         )
 
+    def record_kill_event_dedup(
+        self, action: str, reason: str, source: str, window_s: float = 60.0
+    ) -> tuple[int, bool]:
+        """ScrollCraft atomic-claim pattern applied to kill-switch spam: record a
+        kill event UNLESS an identical (action, reason, source) event already
+        exists within `window_s` seconds (sentinel loops re-engaging every tick).
+
+        Returns (event_id, inserted). Single RLock'd read+write = atomic within
+        this process; WAL mode covers cross-process readers.
+        """
+        from datetime import datetime as _dt
+        import time as _time
+
+        with self._lock:
+            rows = self.query(
+                "SELECT id, ts, reason FROM kill_events WHERE action=? AND source=? "
+                "ORDER BY id DESC LIMIT 50",
+                (action, source),
+            )
+            now = _time.time()
+            for r in rows:
+                if (r["reason"] or "") != (reason or ""):
+                    continue
+                try:
+                    t = _dt.fromisoformat(str(r["ts"]).replace("Z", "+00:00")).timestamp()
+                except Exception:
+                    continue  # unparseable ts -> treat as not-a-duplicate
+                if now - t <= window_s:
+                    return int(r["id"]), False
+            return self.record_kill_event(action, reason, source), True
+
     def get_position(self, venue: str, symbol: str) -> Optional[Dict[str, Any]]:
         rows = self.query("SELECT * FROM positions WHERE venue = ? AND symbol = ?", (venue, symbol))
         return dict(rows[0]) if rows else None

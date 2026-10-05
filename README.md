@@ -21,9 +21,9 @@ This system operates a complete zero-bloat pipeline, relying primarily on `Polar
 5. **Dynamic Kelly Sizing:** Eliminates static order sizes. Calculates the `Half-Kelly` fraction dynamically derived from the Deflated Sharpe P-Value.
 6. **Adversarial Stress Testing & DSR:** Implements Marcos Lopez de Prado's Purged Walk-Forward cross-validation and Deflated Sharpe Ratio to mathematically prove the strategy is not overfit.
 
-## 💸 Zero-Cost AI Automation (KeyRotator)
+## LLM credentials and availability
 
-The engine features a fully autonomous `KeyRotator` that utilizes regex-based scraping to pull fresh, valid API keys directly from live open-source GitHub repositories. The swarm autonomously rotates to fresh keys whenever rate limits are hit, guaranteeing **100% free, permanent uptime** for all AI inference (Gemini, Claude, OpenAI).
+`KeyRotator` loads operator-supplied environment credentials. Use only keys you own or are authorized to use; never harvest exposed credentials from GitHub. Provider free tiers have quotas and availability limits. Neither free inference nor permanent uptime is guaranteed.
 
 ## 🚀 Quick start (developers)
 

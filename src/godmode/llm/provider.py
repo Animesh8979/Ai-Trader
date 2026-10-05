@@ -14,7 +14,9 @@ Swapping Claude -> Gemini is just editing model strings in models.yaml.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
@@ -30,6 +32,76 @@ log = get_logger("llm")
 
 class LLMError(RuntimeError):
     pass
+
+
+# --------------------------------------------------------------------------- #
+#  Daily spend ledger (ScrollCraft quota-refund pattern)
+# --------------------------------------------------------------------------- #
+DEFAULT_LLM_DAILY_CAP_USD = 5.0
+_RESERVE_EST_USD = 0.02
+
+
+class LLMBudget:
+    """Thread-safe daily LLM spend ledger.
+
+    reserve() -> handle | None when the cap is reached. commit(handle, actual)
+    settles a billed call; refund(handle) releases the reservation when nothing
+    was charged (all paid providers failed / free tier served). Prevents N
+    concurrent agent cycles from collectively overshooting GODMODE_LLM_DAILY_CAP_USD.
+    """
+
+    def __init__(self, daily_cap_usd: Optional[float] = None):
+        raw = os.getenv("GODMODE_LLM_DAILY_CAP_USD")
+        if daily_cap_usd is not None:
+            cap = float(daily_cap_usd)
+        elif raw:
+            cap = float(raw)
+        else:
+            cap = DEFAULT_LLM_DAILY_CAP_USD
+        if cap < 0:
+            raise ValueError("LLM daily cap must be >= 0")
+        self.daily_cap = cap
+        self.spent_usd = 0.0
+        self._in_flight = 0.0
+        self._lock = threading.Lock()
+
+    def reserve(self) -> Optional[float]:
+        with self._lock:
+            if self.spent_usd + self._in_flight + _RESERVE_EST_USD > self.daily_cap + 1e-12:
+                return None
+            self._in_flight += _RESERVE_EST_USD
+            return _RESERVE_EST_USD
+
+    def commit(self, handle: float, actual_cost_usd: float) -> None:
+        with self._lock:
+            self._in_flight = max(0.0, self._in_flight - handle)
+            self.spent_usd += max(0.0, float(actual_cost_usd))
+
+    def refund(self, handle: float) -> None:
+        with self._lock:
+            self._in_flight = max(0.0, self._in_flight - handle)
+
+    @property
+    def remaining_usd(self) -> float:
+        with self._lock:
+            return max(0.0, round(self.daily_cap - self.spent_usd - self._in_flight, 6))
+
+
+_budget_singleton: Optional[LLMBudget] = None
+
+
+def get_llm_budget() -> LLMBudget:
+    global _budget_singleton
+    if _budget_singleton is None:
+        _budget_singleton = LLMBudget()
+    return _budget_singleton
+
+
+def reset_llm_budget(daily_cap_usd: Optional[float] = None) -> LLMBudget:
+    """Test seam: swap in a fresh ledger and return it."""
+    global _budget_singleton
+    _budget_singleton = LLMBudget(daily_cap_usd=daily_cap_usd)
+    return _budget_singleton
 
 
 # --------------------------------------------------------------------------- #
@@ -54,7 +126,11 @@ _JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def extract_json(text: str) -> dict:
-    """Best-effort parse of a JSON object from an LLM response (handles code fences)."""
+    """Best-effort parse of a JSON OBJECT from an LLM response (handles code fences).
+
+    Non-object JSON (arrays, scalars) raises LLMError — callers depend on the
+    dict contract for .get()-style agent output handling.
+    """
     if not text or not text.strip():
         raise LLMError("empty LLM response; no JSON to parse")
     cleaned = text.strip()
@@ -62,13 +138,23 @@ def extract_json(text: str) -> dict:
         cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
         cleaned = re.sub(r"\n?```$", "", cleaned).strip()
     try:
-        return json.loads(cleaned)
+        parsed = json.loads(cleaned)
+        if not isinstance(parsed, dict):
+            raise LLMError(f"expected JSON object, got {type(parsed).__name__}")
+        return parsed
+    except LLMError:
+        raise
     except Exception:
         pass
     match = _JSON_RE.search(cleaned)
     if match:
         try:
-            return json.loads(match.group(0))
+            parsed = json.loads(match.group(0))
+            if not isinstance(parsed, dict):
+                raise LLMError(f"expected JSON object, got {type(parsed).__name__}")
+            return parsed
+        except LLMError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise LLMError(f"could not parse JSON from LLM response: {exc}")
     raise LLMError("no JSON object found in LLM response")
@@ -171,39 +257,56 @@ class LLMClient:
 
         candidates = self._candidates(role)
         temperature_val, max_tokens_val, timeout_val = self._params(temperature, max_tokens)
-        last_err: Optional[Exception] = None
 
-        for model in candidates:
-            started = time.perf_counter()
-            try:
-                resp = self._call_with_retry(
-                    model, messages, temperature_val, max_tokens_val, timeout_val, json_mode
-                )
-                out = self._to_response(resp, model, role)
-                out.latency_ms = int((time.perf_counter() - started) * 1000)
-                if record:
-                    self._record(out, messages, cycle_id, run_id)
-                return out
-            except Exception as exc:  # noqa: BLE001
-                last_err = exc
-                log.warning(f"LLM model {model} failed ({type(exc).__name__}): {exc}; trying next")
-                continue
-
-        # Fallback to FreeLLMRouter (OpenRouter Free / Groq Free / Gemini Free)
-        log.info(f"Attempting free-tier LLM fallback for role '{role}'")
-        sys_prompt = messages[0]["content"] if messages and messages[0].get("role") == "system" else ""
-        usr_prompt = messages[-1]["content"] if messages else ""
-        free_text = get_free_router().complete(sys_prompt, usr_prompt)
-        if free_text:
-            return LLMResponse(
-                model="free-tier-fallback",
-                role=role,
-                text=free_text,
-                tokens_in=len(usr_prompt) // 4,
-                tokens_out=len(free_text) // 4,
-                latency_ms=100,
-                cost_usd=0.0
+        # Quota guard: reserve before paid calls, commit actual cost on success,
+        # refund when nothing was charged (ScrollCraft quota-refund pattern).
+        budget = get_llm_budget()
+        handle = budget.reserve()
+        if handle is None:
+            log.warning(
+                "LLM daily cap $%.2f reached — paid providers skipped; free fallback only",
+                budget.daily_cap,
             )
+            candidates = []
+        settled = False
+        try:
+            last_err: Optional[Exception] = None
+            for model in candidates:
+                started = time.perf_counter()
+                try:
+                    resp = self._call_with_retry(
+                        model, messages, temperature_val, max_tokens_val, timeout_val, json_mode
+                    )
+                    out = self._to_response(resp, model, role)
+                    out.latency_ms = int((time.perf_counter() - started) * 1000)
+                    if record:
+                        self._record(out, messages, cycle_id, run_id)
+                    budget.commit(handle, out.cost_usd)
+                    settled = True
+                    return out
+                except Exception as exc:  # noqa: BLE001
+                    last_err = exc
+                    log.warning(f"LLM model {model} failed ({type(exc).__name__}): {exc}; trying next")
+                    continue
+
+            # Fallback to FreeLLMRouter (OpenRouter Free / Groq Free / Gemini Free)
+            log.info(f"Attempting free-tier LLM fallback for role '{role}'")
+            sys_prompt = messages[0]["content"] if messages and messages[0].get("role") == "system" else ""
+            usr_prompt = messages[-1]["content"] if messages else ""
+            free_text = get_free_router().complete(sys_prompt, usr_prompt)
+            if free_text:
+                return LLMResponse(
+                    model="free-tier-fallback",
+                    role=role,
+                    text=free_text,
+                    tokens_in=len(usr_prompt) // 4,
+                    tokens_out=len(free_text) // 4,
+                    latency_ms=100,
+                    cost_usd=0.0
+                )
+        finally:
+            if handle is not None and not settled:
+                budget.refund(handle)
 
         raise LLMError(f"All LLM candidates and free fallbacks failed for role '{role}': {last_err}")
 

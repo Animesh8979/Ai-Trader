@@ -65,6 +65,7 @@ class PortfolioState:
     open_positions: int = 0
     consecutive_losses: int = 0
     has_position_in_symbol: bool = False   # already hold the proposal's symbol?
+    historical_returns: Optional[list[float]] = None  # empirical portfolio returns for VaR models
 
     def __post_init__(self) -> None:
         self.equity = D(self.equity)
@@ -152,6 +153,19 @@ class RiskEngine:
                     [f"already at max open positions ({L.max_open_positions})"],
                     breakers=breakers,
                 )
+
+            if portfolio.historical_returns and len(portfolio.historical_returns) >= 30:
+                from godmode.risk.var_models import cornish_fisher_var
+
+                var_val = cornish_fisher_var(portfolio.historical_returns, confidence_level=0.99)
+                var_pct = var_val * 100.0
+                if var_pct >= L.var_limit_pct:
+                    breakers.append("portfolio_var_limit")
+                    return RiskDecision(
+                        Verdict.REJECT, ZERO,
+                        [f"portfolio VaR(99%) {var_pct:.2f}% breaches limit {L.var_limit_pct:.2f}%"],
+                        breakers=breakers,
+                    )
 
         # --- 3) sizing clamps (entry orders only) ----------------------------
         verdict = Verdict.APPROVE

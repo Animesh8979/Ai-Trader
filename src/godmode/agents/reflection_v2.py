@@ -57,16 +57,22 @@ class ReflectionAgentV2:
         still_losing = True
 
         for fill in fills:
-            pnl_val = Decimal(str(fill.get("realized_pnl") or "0.0"))
-            if pnl_val != Decimal("0.0"):
-                total_trades += 1
-                total_pnl += pnl_val
-                if pnl_val > 0:
-                    winning_trades += 1
-                    still_losing = False
-                else:
-                    if still_losing:
-                        consecutive_losses += 1
+            raw = fill.get("realized_pnl")
+            try:
+                pnl_val = Decimal(str(raw)) if raw is not None else Decimal("0.0")
+            except Exception:
+                log.warning(f"Skipping fill with unparsable realized_pnl: {raw!r}")
+                continue
+            if not pnl_val.is_finite() or pnl_val == Decimal("0.0"):
+                # NaN/Infinity would crash ordering comparisons; blanks are not trades.
+                continue
+            total_trades += 1
+            total_pnl += pnl_val
+            if pnl_val > 0:
+                winning_trades += 1
+                still_losing = False
+            elif still_losing:
+                consecutive_losses += 1
 
         win_rate = (winning_trades / total_trades * 100.0) if total_trades > 0 else 50.0
 
@@ -78,13 +84,13 @@ class ReflectionAgentV2:
         elif total_trades >= 3 and win_rate < 35.0 and total_pnl < 0:
             bias = "neutral"
             bull_adj = -0.2
-            bear_adj = +0.2
-            reason = f"Win rate {win_rate:.1f}% too low, PnL negative. Defensive bias."
+            bear_adj = -0.2
+            reason = f"Win rate {win_rate:.1f}% too low, PnL negative. Reduce both arguments equally."
         elif win_rate > 65.0 and total_pnl > 0:
             bias = "no_change"
-            bull_adj = +0.1
-            bear_adj = -0.1
-            reason = f"Strong run ({win_rate:.1f}% win rate). Slight bull tilt."
+            bull_adj = 0.0
+            bear_adj = 0.0
+            reason = f"Profitable history ({win_rate:.1f}% win rate) does not predict market direction."
         else:
             bias = "no_change"
             bull_adj = 0.0

@@ -39,12 +39,22 @@ class KillSwitch:
         stop_file: Optional[Path] = None,
         heartbeat_file: Optional[Path] = None,
     ):
-        self.db = db or get_db()
-        self.audit = audit or get_audit()
+        self._db = db
+        self._audit = audit
         self.stop_file = Path(stop_file) if stop_file else paths.STOP_FILE
         self.heartbeat_file = Path(heartbeat_file) if heartbeat_file else HEARTBEAT_FILE
         self.lock = FileLock(str(self.stop_file) + ".lock")
         paths.ensure_runtime_dirs()
+
+    @property
+    def db(self) -> Database:
+        """Resolve lazily so a reset DB singleton never leaves a stale handle."""
+        return self._db if self._db is not None else get_db()
+
+    @property
+    def audit(self) -> AuditLog:
+        """Resolve lazily so a reset audit singleton never leaves a stale handle."""
+        return self._audit if self._audit is not None else get_audit()
 
     # -- halt state ------------------------------------------------------- #
     def is_halted(self) -> bool:

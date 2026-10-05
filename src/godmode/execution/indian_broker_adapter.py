@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any, List
 from godmode.core.config import Config, load_config
 from godmode.core.logging import get_logger
 from godmode.core.money import D
+from godmode.core.killswitch import get_kill_switch
 from godmode.execution.adapter import BaseBrokerAdapter
 
 log = get_logger("execution.indian_equity")
@@ -189,6 +190,9 @@ class ShoonyaAdapter(BaseBrokerAdapter):
         return candles
 
     def create_order(self, symbol: str, type: str, side: str, amount: str, params: Optional[Dict[str, Any]] = None) -> dict:
+        ks = get_kill_switch()
+        if ks.is_halted():
+            raise RuntimeError(f"Order rejected: KillSwitch is engaged ({ks.reason()})")
         exchange, trading_symbol = self._split_symbol(symbol)
         
         # map 'buy' -> 'B', 'sell' -> 'S'

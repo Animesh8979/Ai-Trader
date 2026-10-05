@@ -145,7 +145,7 @@ class MCPClient:
                 stderr=subprocess.PIPE,
                 text=True,
                 bufsize=1,
-                shell=True,
+                shell=False,
                 env=os.environ.copy()
             )
 
@@ -256,25 +256,12 @@ class MCPClient:
             except Exception as e:
                 log.debug(f"Failed to query tools from MCP Server {name}: {e}")
 
-        # Fallback to default mock definitions if no real servers connected
+        # HONESTY RULE (FIX 14): if no real MCP servers connected, advertise NO
+        # tools. Injecting fake tool definitions would invite the LLM to call
+        # nonexistent capabilities and reason about their empty results as if
+        # they were real observations. Empty list = "no tools available".
         if not tools:
-            log.warning("No real MCP tools discovered; returning simulated mocks.")
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": "query_database",
-                    "description": "Run read-only SQL queries against the internal Godmode PostgreSQL database.",
-                    "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}
-                }
-            })
-            tools.append({
-                "type": "function",
-                "function": {
-                    "name": "read_memory_graph",
-                    "description": "Query the persistent memory knowledge graph for past trading rules.",
-                    "parameters": {"type": "object", "properties": {"topic": {"type": "string"}}, "required": ["topic"]}
-                }
-            })
+            log.warning("No real MCP tools discovered; returning empty tool list.")
         
         return tools
 

@@ -60,6 +60,7 @@ class KeyRotator:
                 self.keys[provider] = [val]
         if "anthropic" in self.keys:
             self.keys["claude"] = list(self.keys["anthropic"])
+        self.keys["openrouter_free"] = []
         for model_id in FREE_OPENROUTER_MODELS:
             self.keys["openrouter_free"].append(model_id)
         self.last_fetch = now

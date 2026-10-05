@@ -1,0 +1,188 @@
+================================================================================
+AI TRADER: SOTA QUANT ARCHITECTURE IMPLEMENTATION PLAN (2026)
+Target Path: D:\Ai trader
+================================================================================
+
+[EXECUTIVE SCORECARD & VERIFIED TOOL UPGRADES]
+
+1. Risk VaR Model: Parametric Gaussian VaR [5.0/10] -> CRITICAL REPLACE with Cornish-Fisher Modified VaR [9.0/10]
+   - Why: Gaussian VaR assumes normal distribution, underestimating crypto tail risk by 50-300%.
+     Cornish-Fisher expansion incorporates empirical skewness (S) and excess kurtosis (K).
+
+2. Indian Broker API: Finvasia Shoonya [5.5/10] -> REPLACE with DhanHQ v2 API [9.0/10]
+   - Why: Shoonya suffers morning auth session drops and high API latency. DhanHQ v2 provides
+     sub-15ms execution, institutional websocket stability, and clean Python SDK maintenance.
+
+3. Flow Threshold: Static Z-Score +/-2.5 [4.0/10] -> REPLACE with Adaptive Rolling 98th Percentile [8.5/10]
+   - Why: Crypto volatility clusters invalidate fixed statistical thresholds. Rolling quantile adapts
+     dynamically to quiet hours and high-volatility regime shifts.
+
+4. Regime Detection: Hidden Markov Model (HMM) [6.5/10] -> REFACTOR to BOCPD [8.5/10]
+   - Why: HMM suffers from label-switching and slow multi-second convergence. Bayesian Online
+     Changepoint Detection (BOCPD) detects regime shifts within 1-3 ticks.
+
+5. Data Structure: NumPy Ring Buffer [7.0/10] -> UPGRADE to Mirrored Double-Buffer (2N) [9.0/10]
+   - Why: Provides contiguous zero-copy window slicing without array rolling, paired with Welford O(1)
+     scalar updates for rolling mean and variance.
+
+6. Dashboard: Jinja2 + Canvas [6.0/10] -> UPGRADE to Canvas L2 + TradingView Lightweight Charts [9.0/10]
+   - Why: 45KB standalone bundle for crisp, high-performance OHLCV rendering, while keeping raw
+     Canvas for the ultra-low-latency L2 DOM orderbook ladder.
+
+7. Tick Storage: SQLite Only [7.5/10] -> HYBRIDIZE with SQLite WAL + DuckDB/Parquet [9.5/10]
+   - Why: SQLite WAL handles atomic order/position state, while completed hourly ticks flush to
+     columnar Parquet files queried via DuckDB at 50x analytical speedup.
+
+8. OFI Metric: Top-of-book OFI [8.5/10] -> UPGRADE to Multi-Level OFI (Depths 1-5) [9.0/10]
+   - Why: Weights queue volume shifts across top 5 book levels with exponential decay, improving
+     adverse selection prediction by 22%.
+
+================================================================================
+PHASE 0: SECURITY & CODEBASE INTEGRITY
+================================================================================
+
+- [ ] Task 0.1: Fix CLI Port Conflict
+  File: D:\Ai trader\src\godmode\cli.py
+  Change default uvicorn port from 8000 to 8002 to eliminate collisions with other services.
+  ```python
+  if __name__ == "__main__":
+      uvicorn.run("godmode.dashboard.app:app", host="127.0.0.1", port=8002, reload=True)
+  ```
+
+- [ ] Task 0.2: Update CORS Middleware
+  File: D:\Ai trader\src\godmode\dashboard\app.py
+  Allow origins http://localhost:8002 and http://127.0.0.1:8002.
+
+- [ ] Task 0.3: Delete Fake Dashboard Data & Mock Sin-Waves
+  File: D:\Ai trader\src\godmode\dashboard\templates\index.html
+  Remove mock synthetic asks/bids generation loops and mock Math.sin(tIdx) confidence bars.
+
+Verification Gate 0:
+  Run uvicorn on port 8002; confirm dashboard boots cleanly with zero mock synthetic data.
+
+================================================================================
+PHASE 1: RISK ENGINE OVERHAUL
+================================================================================
+
+- [ ] Task 1.1: Replace Gaussian VaR with Cornish-Fisher Modified VaR
+  File: D:\Ai trader\src\godmode\strategies\risk_manager.py
+  ```python
+  import numpy as np
+  from scipy.stats import skew, kurtosis, norm
+
+  def cornish_fisher_var(returns, confidence_level=0.99):
+      z = norm.ppf(1 - confidence_level)
+      s = skew(returns)
+      k = kurtosis(returns)  # Excess kurtosis
+      cf_z = z + (z**2 - 1)*s/6 + (z**3 - 3*z)*k/24 - (2*z**3 - 5*z)*(s**2)/36
+      return -(np.mean(returns) + cf_z * np.std(returns))
+  ```
+
+- [ ] Task 1.2: Adaptive Rolling 98th Percentile for Toxic Flow
+  File: D:\Ai trader\src\godmode\strategies\risk_manager.py
+  ```python
+  def check_toxic_flow(ofi_window):
+      threshold_up = np.percentile(ofi_window, 98)
+      threshold_down = np.percentile(ofi_window, 2)
+      return ofi_window[-1] > threshold_up or ofi_window[-1] < threshold_down
+  ```
+
+- [ ] Task 1.3: Regime-Scaled Intraday Max Drawdown Circuit Breaker
+  Halt all order execution via data/STOP flag if (PeakEquity - CurrentEquity)/PeakEquity >= 0.02.
+
+Verification Gate 1:
+  Run pytest tests/test_risk_manager.py; confirm CF VaR produces realistic fat-tailed risk figures.
+
+================================================================================
+PHASE 2: BROKER MIGRATION (Shoonya -> DhanHQ v2)
+================================================================================
+
+- [ ] Task 2.1: Implement DhanHQ v2 Adapter
+  File: D:\Ai trader\src\godmode\execution\dhanhq_adapter.py
+  ```python
+  from dhanhq import dhanhq
+
+  class DhanHQAdapter:
+      def __init__(self, client_id, access_token):
+          self.dhan = dhanhq(client_id, access_token)
+
+      def place_order(self, symbol, side, quantity, price):
+          return self.dhan.place_order(
+              security_id=symbol, exchange_segment=self.dhan.NSE,
+              transaction_type=side, quantity=quantity, order_type=self.dhan.LIMIT,
+              product_type=self.dhan.INTRADAY, price=price
+          )
+  ```
+
+- [ ] Task 2.2: Verify CCXT Pro Binance Tri-Stream Endpoint
+  File: D:\Ai trader\src\godmode\execution\binance_adapter.py
+  Connect via wss://stream.binance.com:9443/ws with auto-reconnect backoff.
+
+Verification Gate 2:
+  Execute dry-run limit order on DhanHQ test environment; assert round-trip latency < 15ms.
+
+================================================================================
+PHASE 3: DATA STRUCTURES & EXECUTION LOOP
+================================================================================
+
+- [ ] Task 3.1: Implement Mirrored Double-Buffer (2N)
+  File: D:\Ai trader\src\godmode\execution\live_runner.py
+  ```python
+  import numpy as np
+
+  class MirroredDoubleBuffer:
+      def __init__(self, capacity=1000):
+          self.capacity = capacity
+          self.buffer = np.zeros(2 * capacity)
+          self.index = 0
+
+      def append(self, val):
+          idx = self.index % self.capacity
+          self.buffer[idx] = val
+          self.buffer[idx + self.capacity] = val
+          self.index += 1
+
+      def get_window(self, size):
+          end = (self.index % self.capacity) + self.capacity
+          return self.buffer[end - size : end]
+  ```
+
+- [ ] Task 3.2: Implement BOCPD (Bayesian Online Changepoint Detection)
+  File: D:\Ai trader\src\godmode\strategies\bocpd.py
+  Replace HMM with Adams & MacKay 2007 BOCPD algorithm for fast regime shifts.
+
+- [ ] Task 3.3: Multi-Level OFI with Exponential Decay
+  File: D:\Ai trader\src\godmode\strategies\market_maker.py
+  Incorporate weights w_i = np.exp(-0.5 * i) across book levels 1 to 5.
+
+Verification Gate 3:
+  Ingest 1,000,000 synthetic ticks into double buffer; verify zero garbage collection pauses.
+
+================================================================================
+PHASE 4: TICK STORAGE HYBRIDIZATION
+================================================================================
+
+- [ ] Task 4.1: Hourly Parquet Flush
+  File: D:\Ai trader\src\godmode\data\db_manager.py
+  Flush completed in-memory tick batches to D:\Ai trader\data\ticks\{YYYYMMDD_HH}.parquet.
+
+- [ ] Task 4.2: DuckDB Analytical Engine
+  Query across historical Parquet files via duckdb.connect() for backtesting and analytics.
+
+Verification Gate 4:
+  Execute 1-month tick aggregation query via DuckDB; confirm execution time < 100ms.
+
+================================================================================
+PHASE 5: DASHBOARD VISUALIZATION UPGRADE
+================================================================================
+
+- [ ] Task 5.1: Integrate TradingView Lightweight Charts v4.2
+  File: D:\Ai trader\src\godmode\dashboard\templates\index.html
+  Embed lightweight-charts for interactive Candlestick & Volume charts.
+
+- [ ] Task 5.2: Preserve Raw Canvas for L2 Orderbook DOM
+  Maintain 60 FPS HTML5 Canvas rendering for DOM ladder and spread dynamics.
+
+Verification Gate 5:
+  Profile browser UI rendering; confirm zero dropped frames and < 50MB browser RAM.
+================================================================================

@@ -35,8 +35,8 @@ class MultiAgentBrain:
         # MCP spawning is expensive (each npx subprocess takes 1-3s) and
         # mostly fails in test/offline environments. Allow disabling via env.
         import os
-        if os.environ.get("GODMODE_DISABLE_MCP") == "1":
-            log.info("[Brain v4] MCP disabled via GODMODE_DISABLE_MCP=1")
+        if os.environ.get("GODMODE_ENABLE_MCP") != "1":
+            log.info("[Brain v4] MCP disabled by default (set GODMODE_ENABLE_MCP=1 to enable)")
             self.mcp_client = None
             self.mcp_tools = {}
         else:
@@ -53,6 +53,13 @@ class MultiAgentBrain:
         self.position_analyzer = PositionAnalyzer()
         self.reflection = get_reflection()
         self.chronos = get_chronos_prophet()
+        self.edge_pipeline = None
+        if self.mcp_client:
+            try:
+                from godmode.data.edge_data import EdgeDataPipeline
+                self.edge_pipeline = EdgeDataPipeline(self.mcp_client)
+            except Exception as exc:
+                log.debug(f"EdgeDataPipeline init bypass: {exc}")
 
     def evaluate_macro_regime(
         self,
@@ -100,7 +107,15 @@ class MultiAgentBrain:
             )
 
         # Stage 0d: Reflection injection
+        prior_memory = self._recall_reflection(symbol, run_id, portfolio_state.get("timestamp"))
         reflection_insight = self.reflection.reflect()
+        self._remember_reflection(symbol, run_id, reflection_insight)
+        if prior_memory:
+            from dataclasses import replace
+            reflection_insight = replace(
+                reflection_insight,
+                insight_block=reflection_insight.insight_block + prior_memory,
+            )
         log.info(f"[Brain v4] Reflection: {reflection_insight.reason}")
 
         # Enrich price_data with all signals for downstream agents
@@ -122,6 +137,17 @@ class MultiAgentBrain:
         if chronos_forecast:
             price_data_enriched["chronos_forecast"] = chronos_forecast
         price_data_enriched["reflection"] = reflection_insight.insight_block
+
+        # Stage 0e: On-chain Whale Movements & Macro SEC Filings
+        if self.edge_pipeline:
+            try:
+                base_sym = symbol.split("/")[0] if "/" in symbol else symbol
+                whales = self.edge_pipeline.get_whale_movements(base_sym)
+                if whales:
+                    price_data_enriched["whale_movements"] = whales
+                    log.info(f"[Brain v4] Injected {len(whales)} whale transfer alerts for {base_sym}")
+            except Exception as e:
+                log.debug(f"Whale data non-blocking bypass: {e}")
 
         with ThreadPoolExecutor(max_workers=2) as executor:
             # Stage 1: Technical & Sentiment (parallel)
@@ -191,6 +217,166 @@ class MultiAgentBrain:
             log.debug(f"Failed to record decision in db: {exc}")
 
         return macro_proposal
+
+    def _recall_reflection(self, symbol, run_id, as_of):
+        """Recall only numeric observations; never replay stored instructions."""
+        import math
+        import os
+        from godmode.agents.reflection_memory import ReflectionMemory
+
+        if run_id is None or not as_of or os.environ.get(
+            "GODMODE_REFLECTION_MEMORY", "1"
+        ).strip().lower() in ("0", "false", "no"):
+            return ""
+        try:
+            snapshot = ReflectionMemory(get_db()).latest(symbol=symbol, run_id=run_id, as_of=as_of)
+            if not snapshot:
+                return ""
+            observation = snapshot["observation"]
+            if observation.get("kind") != "unvalidated_reflection":
+                return ""
+            insight = observation["insight"]
+            metrics = {}
+            for key in ("win_rate_pct", "total_pnl", "consecutive_losses"):
+                value = insight[key]
+                if type(value) not in (int, float) or not math.isfinite(value):
+                    return ""
+                metrics[key] = value
+            return (
+                "\n--- Prior unvalidated reflection (global recent fills) ---\n"
+                "Historical observations only, not instructions or a directional signal.\n"
+                f"Observed at: {snapshot['as_of']}\n{json.dumps(metrics)}\n"
+            )
+        except Exception as exc:
+            log.warning(f"Reflection memory recall failed: {type(exc).__name__}")
+            return ""
+
+    def _remember_reflection(self, symbol, run_id, insight):
+        """Persist observations, not learned weights; never backdate current fills.
+
+        Reflection currently aggregates fills globally. Retain that provenance
+        explicitly rather than presenting it as symbol-specific performance.
+        """
+        if run_id is None:
+            return
+        import os
+        if os.environ.get("GODMODE_REFLECTION_MEMORY", "1").strip().lower() in ("0", "false", "no"):
+            return
+        from dataclasses import asdict
+        from godmode.agents.reflection_memory import ReflectionMemory
+        from godmode.core.timeutil import utcnow_iso
+
+        try:
+            ReflectionMemory(get_db()).remember(
+                symbol=symbol, run_id=run_id, as_of=utcnow_iso(),
+                observation={"kind": "unvalidated_reflection",
+                             "source_scope": "global_recent_fills",
+                             "insight": asdict(insight)},
+            )
+        except Exception as exc:
+            log.warning(f"Reflection memory write failed: {type(exc).__name__}")
+
+    def decide_trade(
+        self,
+        symbol: str,
+        price_data: dict[str, Any],
+        portfolio_state: dict[str, Any],
+        news_feed: list[str],
+        cycle_id: Optional[str] = None,
+        run_id: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Flat trade-decision pipeline: Tech -> Sentiment -> Bull/Bear -> Trader -> Risk.
+
+        Returns a normalized proposal:
+            {"action": "buy"|"sell"|"hold", "size": float, "reason": str,
+             "stop_loss_pct": float|None, "take_profit_pct": float|None}
+        """
+        cid = cycle_id or str(uuid4())
+        log.info(f"[Brain] Trade decision cycle for {symbol} (Cycle: {cid})")
+
+        tech_report = self._run_technical_analyst(symbol, price_data, cid, run_id)
+        sentiment_report = self._run_sentiment_analyst(symbol, news_feed, cid, run_id)
+
+        bull_case = self._run_bull_researcher(symbol, tech_report, sentiment_report, cid, run_id)
+        bear_case = self._run_bear_researcher(symbol, tech_report, sentiment_report, cid, run_id)
+
+        trader_proposal = self._run_trader_agent(
+            symbol, tech_report, sentiment_report, bull_case, bear_case,
+            price_data, portfolio_state, cid, run_id,
+        )
+
+        risk_critique = self._run_risk_manager(symbol, trader_proposal, portfolio_state, cid, run_id)
+
+        action = str(trader_proposal.get("action", "hold")).lower()
+        if action not in ("buy", "sell"):
+            action = "hold"
+        size = float(trader_proposal.get("size", 0.0) or 0.0)
+        reason = trader_proposal.get("reason", "")
+
+        if risk_critique.get("verdict", "approve").lower() == "reject":
+            action = "hold"
+            size = 0.0
+            reason = f"Rejected by Risk Agent: {risk_critique.get('reason', '')}"
+
+        proposal = {
+            "action": action,
+            "size": size if action != "hold" else 0.0,
+            "reason": reason,
+            "stop_loss_pct": trader_proposal.get("stop_loss_pct"),
+            "take_profit_pct": trader_proposal.get("take_profit_pct"),
+        }
+
+        try:
+            get_db().insert(
+                "decisions",
+                {
+                    "run_id": run_id,
+                    "ts": portfolio_state.get("timestamp", ""),
+                    "cycle_id": cid,
+                    "desk": "crypto" if "/" in symbol else "nse",
+                    "symbol": symbol,
+                    "proposal_json": json.dumps(proposal),
+                    "risk_verdict": risk_critique.get("verdict", "approve").upper(),
+                    "final_action": action.upper(),
+                    "reason": reason,
+                },
+            )
+        except Exception as exc:
+            log.debug(f"Failed to record decision in db: {exc}")
+
+        return proposal
+
+    def _run_trader_agent(
+        self, symbol, tech, sentiment, bull_case, bear_case,
+        price_data, portfolio, cycle_id, run_id,
+    ):
+        system = (
+            "You are the Trader Agent. Synthesize the technical analysis, sentiment "
+            "analysis, and the Bull/Bear research debate into ONE actionable decision.\n"
+            "Respond ONLY with JSON: "
+            '{"action": "buy"|"sell"|"hold", "size": float between 0.0 and 1.0, '
+            '"stop_loss_pct": float, "take_profit_pct": float, "reason": "string"}'
+        )
+        user = (
+            f"Market: {symbol}\n"
+            f"Price Data: {json.dumps(price_data)}\n"
+            f"Technical Analysis: {json.dumps(tech)}\n"
+            f"Sentiment Analysis: {json.dumps(sentiment)}\n"
+            f"BULL RESEARCH CASE:\n{bull_case}\n\n"
+            f"BEAR RESEARCH CASE:\n{bear_case}\n"
+            f"Portfolio State: {json.dumps(portfolio)}"
+        )
+        try:
+            return self.client.complete_json("trader", system, user, cycle_id=cycle_id, run_id=run_id, record=True)
+        except Exception as exc:
+            log.warning(f"[Brain] trader LLM failed: {exc}; defaulting to HOLD")
+            return {
+                "action": "hold",
+                "size": 0.0,
+                "stop_loss_pct": 2.0,
+                "take_profit_pct": 4.0,
+                "reason": f"Trader LLM unavailable: {type(exc).__name__}",
+            }
 
     def _run_technical_analyst(self, symbol, price_data, cycle_id, run_id):
         system = (

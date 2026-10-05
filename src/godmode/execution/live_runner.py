@@ -32,6 +32,10 @@ from godmode.agents.brain import MultiAgentBrain
 from godmode.agents.tsfm_prophet import ChronosProphetV2
 from godmode.agents.reflection_agent import ReflectionAgent
 from godmode.risk.engine import RiskEngine, OrderProposal, PortfolioState, Verdict
+from godmode.agents.jev_trader_engine import JevTraderEngine
+from godmode.risk.policy_veto import PolicyVetoEngine
+from godmode.execution.post_only_pegging import PostOnlyPeggingEngine
+from godmode.core.singularity_loop import get_singularity_loop
 
 log = get_logger("execution.live_runner")
 
@@ -279,6 +283,11 @@ class LiveRunner:
             "rsi_overbought": 70,
             "regime": "ranging"
         }
+        self.jev_engine = JevTraderEngine()
+        self.policy_veto = PolicyVetoEngine()
+        self.pegging_engine = PostOnlyPeggingEngine()
+        self.singularity_loop = get_singularity_loop()
+        self._last_jev_confidence = 0.65
 
     def start(self, note: str = "Live trading loop started") -> None:
         """Start the live trading thread pool/loop."""
@@ -327,6 +336,9 @@ class LiveRunner:
         
         while self._running:
             try:
+                # Refresh watchdog heartbeat
+                self.kill_switch.beat()
+
                 # 1. Enforce physical stop switch
                 if self.kill_switch.is_halted():
                     log.warning("Trading is HALTED. Skipping execution cycle.")
@@ -335,9 +347,9 @@ class LiveRunner:
 
                 log.info(f"Running execution tick for {symbol} on {venue}...")
                 
-                # 2. Fetch live data concurrently for 1m and 15m
-                candles_1m_task = asyncio.to_thread(adapter.fetch_ohlcv, symbol, "1m", limit=30)
-                candles_15m_task = asyncio.to_thread(adapter.fetch_ohlcv, symbol, "15m", limit=30)
+                # 2. Fetch live data concurrently for 1m and 15m (raw ccxt rows)
+                candles_1m_task = asyncio.to_thread(adapter.exchange.fetch_ohlcv, symbol, "1m", limit=30)
+                candles_15m_task = asyncio.to_thread(adapter.exchange.fetch_ohlcv, symbol, "15m", limit=30)
                 candles_1m, candles_15m = await asyncio.gather(candles_1m_task, candles_15m_task)
                 
                 price_metrics_1m = compute_indicators(candles_1m)
@@ -349,11 +361,14 @@ class LiveRunner:
                 }
                 current_price = Decimal(str(price_metrics_1m["close"]))
                 
-                # Fetch balance and map base coin as position size
-                cash = adapter.free_balance(quote_asset)
+                # Fetch balance and map base coin holdings as position size
+                balances = await asyncio.to_thread(adapter.fetch_balance)
+                base_bal = balances.get(base_asset, {}) if isinstance(balances, dict) else {}
+                quote_bal = balances.get(quote_asset, {}) if isinstance(balances, dict) else {}
+                cash = Decimal(str(quote_bal.get("free", 0) or 0))
+                position_qty = Decimal(str(base_bal.get("total", 0) or 0))
                 
-                # Fetch position size
-                position_qty = await asyncio.to_thread(adapter.fetch_position_qty, symbol)
+
                 
                 current_equity = cash + (position_qty * current_price)
                 if self._peak_equity is None or current_equity > self._peak_equity:
@@ -366,61 +381,176 @@ class LiveRunner:
                     "position_size": float(position_qty),
                 }
 
-                # 3.5 Performance Self-Reflection (Self-Calibration)
+                # Performance Self-Reflection (self-calibration)
                 reflection_res = self.reflection.reflect()
-                if reflection_res["recommended_bias"] == "neutral":
-                    log.warning(f"Reflection Agent overriding trade bias to NEUTRAL: {reflection_res['reason']}")
+                refl_bias = (
+                    reflection_res.get("recommended_bias")
+                    if isinstance(reflection_res, dict)
+                    else getattr(reflection_res, "recommended_bias", None)
+                )
+                if refl_bias == "neutral":
+                    refl_reason = (
+                        reflection_res.get("reason")
+                        if isinstance(reflection_res, dict)
+                        else getattr(reflection_res, "reason", "")
+                    )
+                    log.warning(f"Reflection Agent overriding trade bias to NEUTRAL: {refl_reason}")
                     self.macro_params["trade_bias"] = "neutral"
 
-                # 3.6 Chronos Time-Series Prophet target distribution
+                # Chronos Prophet forecast (advisory telemetry)
                 closes = [float(candle[4]) for candle in candles_1m]
-                chronos_dist = self.chronos.predict_distribution(closes)
-
-                # 4. Pure Deterministic Mathematical Logic (Instant Execution)
-                #     + 3.7 Chronos Prophet confirmation gate
-                # (Logic extracted to decide_action() helper so it's unit-testable
-                # without needing a mocked broker loop.)
                 last_close = closes[-1] if closes else 0.0
-                action, reject_reason = decide_action(
-                    price_metrics=price_metrics_1m,
-                    chronos_dist=chronos_dist,
-                    macro_params=self.macro_params,
-                    position_qty=float(position_qty),
-                    last_close=last_close,
+                try:
+                    chronos_dist = self.chronos.predict_distribution(closes)
+                except Exception as exc:
+                    log.warning(f"Chronos Prophet failed ({type(exc).__name__}: {exc}); continuing without forecast.")
+                    chronos_dist = {"p50": last_close, "uncertainty": 1.0}
+                log.info(f"Chronos Prophet advisory: p50={chronos_dist.get('p50')} uncertainty={chronos_dist.get('uncertainty')}")
+
+                # Multi-Agent Brain trade decision (Tech -> Sentiment -> Debate -> Trader -> Risk)
+                news_feed = await fetch_news(symbol)
+                brain_decision = await asyncio.to_thread(
+                    self.brain.decide_trade,
+                    symbol=symbol,
+                    price_data={"close": last_close, "1m": price_metrics_1m, "15m": price_metrics_15m},
+                    portfolio_state=portfolio_state,
+                    news_feed=news_feed,
+                    cycle_id=str(uuid4()),
+                    run_id=self._run_id,
                 )
-                if reject_reason:
-                    log.warning(f"Chronos Prophet REJECTS: {reject_reason}. Skipping.")
+                raw_action = str(brain_decision.get("action", "hold")).lower()
+                action = raw_action if raw_action in ("buy", "sell") else "hold"
+                if action == "hold":
+                    log.info(f"Brain decision HOLD: {brain_decision.get('reason', '')}")
+
+                # Chronos Prophet confirmation gate (independent probabilistic veto).
+                # A flat forecast (p50 within noise of spot) carries no directional
+                # information and abstains; active disagreement or high uncertainty vetoes.
+                # Ops lever: GODMODE_CHRONOS_VETO=0|false|no disables the gate.
+                chronos_veto_enabled = os.getenv("GODMODE_CHRONOS_VETO", "1").strip().lower() not in {
+                    "0", "false", "no"
+                }
+                if action != "hold" and chronos_veto_enabled:
+                    chronos_p50_raw = chronos_dist.get("p50")
+                    chronos_unc_raw = chronos_dist.get("uncertainty")
+                    chronos_p50 = float(chronos_p50_raw) if chronos_p50_raw is not None else 0.0
+                    chronos_unc = float(chronos_unc_raw) if chronos_unc_raw is not None else 1.0
+                    prophet_agrees = True
+                    reject_reason = ""
+                    if chronos_unc > 0.15:
+                        prophet_agrees = False
+                        reject_reason = f"chronos_uncertain: uncertainty={chronos_unc:.4f} > 0.15"
+                    elif chronos_p50 > 0 and last_close > 0:
+                        prophet_edge = chronos_p50 / last_close - 1.0
+                        if action == "buy" and prophet_edge < -0.0005:
+                            prophet_agrees = False
+                            reject_reason = (
+                                f"side=buy last_close={last_close:.4f} p50={chronos_p50:.4f}"
+                            )
+                        elif action == "sell" and prophet_edge > 0.0005:
+                            prophet_agrees = False
+                            reject_reason = (
+                                f"side=sell last_close={last_close:.4f} p50={chronos_p50:.4f}"
+                            )
+                    if not prophet_agrees:
+                        log.warning(f"Chronos Prophet REJECTS: {reject_reason}. Skipping trade.")
+                        action = "hold"
+
+
 
                 if action != "hold":
                     side = "buy" if action == "buy" else "sell"
 
-                    # Out-of-the-box: Digital Twin Simulation (Slippage pre-execution safety gate)
+                    # Digital Twin Simulation (slippage pre-execution safety gate)
+                    bb_upper = Decimal(str(price_metrics_1m.get("bb_upper", 0) or 0))
+                    bb_lower = Decimal(str(price_metrics_1m.get("bb_lower", 0) or 0))
+                    bands_valid = bb_upper > 0 and bb_lower > 0 and bb_upper > bb_lower
                     twin_slippages = [Decimal("0.0005"), Decimal("0.001"), Decimal("0.002")]
                     twin_success = 0
-                    for slip in twin_slippages:
-                        slip_price = current_price * (1 + slip) if side == "buy" else current_price * (1 - slip)
-                        # Verify if slip price stays within Bollinger Bands
-                        if side == "buy" and slip_price < Decimal(str(price_metrics_1m["bb_upper"])):
-                            twin_success += 1
-                        elif side == "sell" and slip_price > Decimal(str(price_metrics_1m["bb_lower"])):
-                            twin_success += 1
-                            
-                    if twin_success < 2:
-                        log.warning(f"Digital Twin Simulation warning: Expected slippage exceeds safe thresholds ({twin_success}/3 successful twins). Trade proposal rejected.")
-                        await asyncio.sleep(float(interval))
-                        continue
+                    if not bands_valid:
+                        twin_success = 3
+                        log.info("Digital Twin Simulation skipped: degenerate Bollinger bands (flat window).")
                     else:
-                        log.info(f"Digital Twin Simulation approved: {twin_success}/3 successful twins.")
+                        for slip in twin_slippages:
+                            slip_price = current_price * (1 + slip) if side == "buy" else current_price * (1 - slip)
+                            if side == "buy" and slip_price < bb_upper:
+                                twin_success += 1
+                            elif side == "sell" and slip_price > bb_lower:
+                                twin_success += 1
+
+                        if twin_success < 2:
+                            log.warning(f"Digital Twin Simulation warning: Expected slippage exceeds safe thresholds ({twin_success}/3 successful twins). Trade proposal rejected.")
+                            await asyncio.sleep(float(interval))
+                            continue
+                        else:
+                            log.info(f"Digital Twin Simulation approved: {twin_success}/3 successful twins.")
+
+                            
+
 
                     is_reducing = (side == "sell" and position_qty > 0) or (side == "buy" and position_qty < 0)
-                    qty_prop = min(Decimal("0.05"), abs(position_qty)) if is_reducing else Decimal("0.05")
+                    brain_size = Decimal(str(brain_decision.get("size", 0.0) or 0.0))
+                    qty_prop = min(brain_size, abs(position_qty)) if is_reducing else max(brain_size, Decimal("0"))
                     
+                    # Jev System 1 Decision & Policy Veto
+                    best_bid_val = float(current_price * Decimal("0.9999"))
+                    best_ask_val = float(current_price * Decimal("1.0001"))
+                    try:
+                        ticker_info = await asyncio.to_thread(adapter.get_ticker, symbol)
+                        if ticker_info.get("bid"):
+                            best_bid_val = float(ticker_info["bid"])
+                        if ticker_info.get("ask"):
+                            best_ask_val = float(ticker_info["ask"])
+                    except Exception as e:
+                        log.debug(f"Ticker fetch non-blocking fallback: {e}")
+
+                    recent_rets = [float((c[4] - c[1]) / c[1]) for c in candles_1m[-20:] if len(c) > 4 and c[1] > 0]
+                    max_pos_val = getattr(self.config.risk, "max_position_size", None)
+                    if max_pos_val is None:
+                        max_pos_val = (current_equity * Decimal(str(self.config.risk.max_position_pct)) / Decimal("100")) / current_price if current_price > 0 else Decimal("1.0")
+                    else:
+                        max_pos_val = Decimal(str(max_pos_val))
+
+                    jev_judgments = self.jev_engine.evaluate(
+                        symbol=symbol,
+                        price=float(current_price),
+                        best_bid=best_bid_val,
+                        best_ask=best_ask_val,
+                        bid_depth=1.0,
+                        ask_depth=1.0,
+                        recent_returns=recent_rets,
+                        current_position=float(position_qty),
+                        max_position=float(max_pos_val),
+                    )
+                    self._last_jev_confidence = jev_judgments.confidence
+                    spread_bps = ((best_ask_val - best_bid_val) / float(current_price) * 10000) if float(current_price) > 0 else 0.0
+
+                    veto = self.policy_veto.check(
+                        side=side,
+                        proposed_qty=qty_prop,
+                        judgments=jev_judgments,
+                        spread_bps=spread_bps,
+                        current_position=position_qty,
+                        max_position=max_pos_val,
+                    )
+                    if not veto.approved:
+                        log.warning(f"Policy Veto Engine rejected trade: {', '.join(veto.reasons)}")
+                        await asyncio.sleep(float(interval))
+                        continue
+
+                    # Compute Post-Only Peg Quote (Maker execution)
+                    peg_quote = self.pegging_engine.calculate_peg_quote(
+                        side=side,
+                        best_bid=Decimal(str(best_bid_val)),
+                        best_ask=Decimal(str(best_ask_val)),
+                    )
+
                     proposal = OrderProposal(
                         symbol=symbol,
                         side=side,
-                        qty=qty_prop,
-                        price=current_price,
-                        order_type="market",
+                        qty=veto.allowed_qty,
+                        price=peg_quote.price,
+                        order_type=peg_quote.order_type,
                         is_reducing=is_reducing
                     )
                     
@@ -462,32 +592,39 @@ class LiveRunner:
                             # Final killswitch check before firing order to market
                             self.kill_switch.check()
 
-                            # Place order
+                            # Pre-record order as pending_submit before exchange call to prevent state desync
                             client_order_id = "gm-live-" + uuid4().hex[:12]
-                            order_res = await asyncio.to_thread(
-                                adapter.create_order,
-                                symbol=symbol,
-                                type="market",
-                                side=side,
-                                amount=str(qty_to_execute),
-                                params={"clientOrderId": client_order_id}
-                            )
-                            
-                            # Log details to SQLite database
+                            order_params = {"clientOrderId": client_order_id, **peg_quote.params}
                             order_db_id = db.insert("orders", {
                                 "run_id": self._run_id,
                                 "client_order_id": client_order_id,
                                 "venue": venue,
                                 "symbol": symbol,
                                 "side": side,
-                                "type": "market",
+                                "type": peg_quote.order_type,
                                 "qty": str(qty_to_execute),
-                                "price": str(current_price),
-                                "status": "filled",
+                                "price": str(peg_quote.price),
+                                "status": "pending_submit",
                                 "created_at": utcnow_iso(),
                                 "updated_at": utcnow_iso(),
-                                "raw_json": str(order_res)
+                                "raw_json": ""
                             })
+
+                            # Place order via adapter
+                            order_res = await asyncio.to_thread(
+                                adapter.create_order,
+                                symbol=symbol,
+                                type=peg_quote.order_type,
+                                side=side,
+                                amount=str(qty_to_execute),
+                                params=order_params
+                            )
+
+                            # Update order to filled post-execution
+                            db.execute(
+                                "UPDATE orders SET status = 'filled', updated_at = ?, raw_json = ? WHERE id = ?",
+                                (utcnow_iso(), str(order_res), order_db_id)
+                            )
 
                             # Calculate realized PnL on closing/trimming fills
                             realized_pnl_val = Decimal("0.0")
@@ -495,21 +632,28 @@ class LiveRunner:
                             avg_entry_price = Decimal(str(pos_record["avg_price"])) if pos_record and pos_record.get("avg_price") else current_price
                             if is_reducing:
                                 side_mult = Decimal("1") if side == "sell" else Decimal("-1")
-                                realized_pnl_val = (current_price - avg_entry_price) * qty_to_execute * side_mult
+                                realized_pnl_val = (peg_quote.price - avg_entry_price) * qty_to_execute * side_mult
 
-                            # Log executed fill
-                            db.insert("fills", {
+                            # Log executed fill and record in Singularity Loop
+                            fill_record = {
                                 "order_id": order_db_id,
                                 "client_order_id": client_order_id,
                                 "venue": venue,
                                 "symbol": symbol,
                                 "side": side,
                                 "qty": str(qty_to_execute),
-                                "price": str(current_price),
-                                "fee": str(qty_to_execute * current_price * Decimal("0.001")),
+                                "price": str(peg_quote.price),
+                                "fee": str(qty_to_execute * peg_quote.price * Decimal("0.0002")),
                                 "fee_ccy": quote_asset,
                                 "realized_pnl": str(round(realized_pnl_val, 4)),
-                                "ts": utcnow_iso()
+                                "ts": utcnow_iso(),
+                                "raw_json": ""
+                            }
+                            db.insert("fills", fill_record)
+                            self.singularity_loop.record_fill({
+                                **fill_record,
+                                "direction_predicted": side,
+                                "confidence": getattr(self, "_last_jev_confidence", 0.65),
                             })
 
                             # Update position record
@@ -553,18 +697,17 @@ class LiveRunner:
                 news_feed = await fetch_news(symbol)
                 
                 # Fetch actual live portfolio state
-                adapter = self.adapters.get("binance")
                 real_equity = 100000.0
                 real_cash = 100000.0
                 pos_qty = 0.0
-                if adapter:
-                    try:
-                        free_bal = await adapter.free_balance("USDT")
-                        real_cash = float(free_bal)
-                        real_equity = real_cash
-                    except Exception:
-                        pass
-                pos_record = db.get_position("binance", symbol)
+                try:
+                    balances = await asyncio.to_thread(adapter.fetch_balance)
+                    quote_bal = balances.get("USDT", {}) if isinstance(balances, dict) else {}
+                    real_cash = float(quote_bal.get("free", 0) or 0)
+                    real_equity = real_cash
+                except Exception:
+                    pass
+                pos_record = get_db().get_position(venue, symbol)
                 if pos_record:
                     pos_qty = float(pos_record.get("qty", 0.0))
 

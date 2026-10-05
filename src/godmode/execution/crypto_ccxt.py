@@ -16,6 +16,7 @@ from typing import Optional
 from godmode.core.config import Config, load_config
 from godmode.core.logging import get_logger
 from godmode.core.money import D
+from godmode.core.killswitch import get_kill_switch
 from godmode.execution.adapter import BaseBrokerAdapter
 
 log = get_logger("execution.crypto")
@@ -112,8 +113,11 @@ class CryptoCcxtAdapter(BaseBrokerAdapter):
         
     def fetch_ohlcv(self, symbol: str, timeframe: str, limit: int) -> list:
         return self.exchange.fetch_ohlcv(symbol, timeframe, limit=limit)
-        
+
     def create_order(self, symbol: str, type: str, side: str, amount: str, params: Optional[dict] = None) -> dict:
+        ks = get_kill_switch()
+        if ks.is_halted():
+            raise RuntimeError(f"Order rejected: KillSwitch is engaged ({ks.reason()})")
         return self.exchange.create_order(symbol, type, side, float(amount), params=params)
 
     def fetch_position_qty(self, symbol: str) -> Decimal:

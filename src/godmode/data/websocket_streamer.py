@@ -27,6 +27,7 @@ class LiveTickStreamer:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._ws: Optional[websocket.WebSocketApp] = None
+        self._lock = threading.Lock()
 
     def start(self) -> None:
         if self._running:
@@ -47,7 +48,8 @@ class LiveTickStreamer:
             self._thread.join(timeout=2.0)
 
     def get_orderbook(self, symbol: str) -> Dict[str, Any]:
-        cached = self._orderbook_depth.get(symbol.upper())
+        with self._lock:
+            cached = self._orderbook_depth.get(symbol.upper())
         if cached:
             return cached
         return {
@@ -68,12 +70,13 @@ class LiveTickStreamer:
                 stream = data.get("stream", "")
                 sym = stream.replace("@depth20", "").upper().split("@")[0].upper()
                 depth = data["data"]
-                self._orderbook_depth[sym] = {
-                    "symbol": sym,
-                    "bids": [[float(b[0]), float(b[1])] for b in depth.get("bids", [])],
-                    "asks": [[float(a[0]), float(a[1])] for a in depth.get("asks", [])],
-                    "ts": time.time(),
-                }
+                with self._lock:
+                    self._orderbook_depth[sym] = {
+                        "symbol": sym,
+                        "bids": [[float(b[0]), float(b[1])] for b in depth.get("bids", [])],
+                        "asks": [[float(a[0]), float(a[1])] for a in depth.get("asks", [])],
+                        "ts": time.time(),
+                    }
         except Exception as exc:
             log.debug(f"WS parse error: {exc}")
 
@@ -92,8 +95,8 @@ class LiveTickStreamer:
                 self._ws = ws = websocket.WebSocketApp(
                     self._build_url(),
                     on_message=lambda ws, msg: self._on_message(ws, msg),
-                    on_error=lambda ws: self._on_error(ws),
-                    on_close=lambda ws: self._on_close(ws),
+                    on_error=lambda ws, error: self._on_error(ws, error),
+                    on_close=lambda ws, close_status_code, close_msg: self._on_close(ws, close_status_code, close_msg),
                     on_open=lambda ws: self._on_open(ws),
                 )
                 ws.run_forever()

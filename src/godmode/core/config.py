@@ -102,6 +102,7 @@ class RiskLimits(BaseModel):
     max_open_positions: int = 8              # cap on concurrent positions
     default_stop_loss_pct: float = 5.0       # default protective stop if omitted
     cooldown_minutes_after_halt: int = 60    # wait after a circuit-breaker halt
+    var_limit_pct: float = 5.0               # max portfolio VaR % permitted at 99% confidence
 
 
 class AppSettings(BaseModel):

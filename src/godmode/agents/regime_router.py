@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional
 
-import polars as pl
-
 
 class Regime(Enum):
     TRENDING_UP = auto()

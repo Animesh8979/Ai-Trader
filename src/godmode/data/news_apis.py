@@ -22,10 +22,13 @@ _NEWSAPI_KEY = os.environ.get("NEWSAPI_API_KEY", "")
 _CRYPTOPANIC_KEY = os.environ.get("CRYPTOPANIC_API_KEY", "")
 
 
-def _fetch_json(url: str, timeout: float = 3.5) -> Optional[Any]:
+def _fetch_json(url: str, timeout: float = 3.5, extra_headers: Optional[Dict[str, str]] = None) -> Optional[Any]:
     try:
         ctx = ssl.create_default_context()
-        req = urllib.request.Request(url, headers={"User-Agent": "GodmodeTerminal/4.0"})
+        headers = {"User-Agent": "GodmodeTerminal/4.0"}
+        if extra_headers:
+            headers.update(extra_headers)
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
             return json.loads(resp.read().decode("utf-8"))
     except Exception as e:
@@ -38,7 +41,7 @@ def fetch_international_news() -> List[Dict[str, Any]]:
     headlines: List[Dict[str, Any]] = []
 
     if _FINNHUB_KEY:
-        data = _fetch_json(f"https://finnhub.io/api/v1/news?category=general&token={_FINNHUB_KEY}")
+        data = _fetch_json("https://finnhub.io/api/v1/news?category=general", extra_headers={"X-Finnhub-Token": _FINNHUB_KEY})
         if data and isinstance(data, list):
             for item in data[:8]:
                 headlines.append({
@@ -53,15 +56,18 @@ def fetch_international_news() -> List[Dict[str, Any]]:
         if data and "results" in data:
             for item in data["results"][:8]:
                 sentiment_map = {"positive": "BULLISH", "negative": "BEARISH", "neutral": "NEUTRAL"}
+                currencies = item.get("currencies") or [{}]
+                if not currencies:
+                    currencies = [{}]
                 headlines.append({
                     "source": "CRYPTOPANIC",
                     "headline": item.get("title", ""),
-                    "sentiment": sentiment_map.get(item.get("currencies", [{}])[0].get("status", "neutral"), "NEUTRAL"),
+                    "sentiment": sentiment_map.get(currencies[0].get("status", "neutral"), "NEUTRAL"),
                     "ts": time.time(),
                 })
 
     if _NEWSAPI_KEY:
-        data = _fetch_json(f"https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5&apiKey={_NEWSAPI_KEY}")
+        data = _fetch_json("https://newsapi.org/v2/top-headlines?category=business&language=en&pageSize=5", extra_headers={"X-Api-Key": _NEWSAPI_KEY})
         if data and "articles" in data:
             for article in data["articles"][:5]:
                 headlines.append({
@@ -79,7 +85,7 @@ def fetch_indian_news() -> List[Dict[str, Any]]:
     headlines: List[Dict[str, Any]] = []
 
     if _NEWSAPI_KEY:
-        data = _fetch_json(f"https://newsapi.org/v2/top-headlines?country=in&category=business&pageSize=5&apiKey={_NEWSAPI_KEY}")
+        data = _fetch_json("https://newsapi.org/v2/top-headlines?country=in&category=business&pageSize=5", extra_headers={"X-Api-Key": _NEWSAPI_KEY})
         if data and "articles" in data:
             for article in data["articles"]:
                 headlines.append({

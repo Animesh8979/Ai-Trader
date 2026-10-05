@@ -1,4 +1,9 @@
-﻿## BEGIN MANAGED BLOCK: query-project-brain
+---
+name: query-project-brain
+description: "Query project brain graph, registry, and architectural documentation for AI Trader."
+---
+
+## BEGIN MANAGED BLOCK: query-project-brain
 # Shared Project Brain
 
 > [!CAUTION]

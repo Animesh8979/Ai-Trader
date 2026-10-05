@@ -146,3 +146,26 @@ def test_reducing_order_still_blocked_by_hard_drawdown():
     )
     assert d.verdict == Verdict.REJECT
     assert d.should_halt is True
+
+
+# --- portfolio VaR gate tests ------------------------------------------------
+def test_var_limit_rejection_for_new_entry():
+    # Volatile returns with 99% VaR around 6-8%, exceeding 5% limit
+    high_vol_returns = [-0.04, -0.05, -0.06, 0.02, -0.03, 0.01, -0.07] * 10
+    d = _engine(var_limit_pct=5.0).evaluate(
+        OrderProposal("BTC/USDT", "buy", qty="0.01", price="50000", is_reducing=False),
+        _portfolio(historical_returns=high_vol_returns),
+    )
+    assert d.verdict == Verdict.REJECT
+    assert "portfolio_var_limit" in d.breakers
+    assert any("breaches limit" in r for r in d.reasons)
+
+
+def test_var_limit_reducing_bypasses_gate():
+    # Risk-reducing exits must bypass the VaR gate
+    high_vol_returns = [-0.04, -0.05, -0.06, 0.02, -0.03, 0.01, -0.07] * 10
+    d = _engine(var_limit_pct=5.0).evaluate(
+        OrderProposal("BTC/USDT", "sell", qty="0.01", price="50000", is_reducing=True),
+        _portfolio(historical_returns=high_vol_returns),
+    )
+    assert d.verdict == Verdict.APPROVE

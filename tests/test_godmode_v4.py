@@ -464,7 +464,7 @@ def test_brutal_hurst_exponent_classifies_persistence() -> None:
     )
 
 
-def test_brutal_brain_e2e_mock_llm() -> None:
+def test_brutal_brain_e2e_mock_llm(monkeypatch) -> None:
     """End-to-end brain.py pipeline with mocked LLM. Proves regime classification,
     position analysis, chronos forecast, and reflection insight all reach the
     macro council's user prompt (verified via injected reason string).
@@ -523,6 +523,8 @@ def test_brutal_brain_e2e_mock_llm() -> None:
     brain = MultiAgentBrain(client=mc)
     brain.mcp_client = None
     brain.mcp_tools = {"mock": True}
+    # Hermetic test: do not write reflection snapshots to the production DB.
+    monkeypatch.setenv("GODMODE_REFLECTION_MEMORY", "0")
 
     result = brain.evaluate_macro_regime(
         symbol="BTCUSDT",
@@ -542,7 +544,7 @@ def test_brutal_brain_e2e_mock_llm() -> None:
         assert needle in reason, f"Missing context: {needle}; got: {reason}"
 
 
-def test_brutal_brain_halts_safely_when_llm_fails() -> None:
+def test_brutal_brain_halts_safely_when_llm_fails(monkeypatch) -> None:
     """When the LLM raises LLMError (all providers unavailable, free-tier also down),
     Brain.evaluate_macro_regime MUST return a safe default plan — NOT crash.
 
@@ -574,6 +576,8 @@ def test_brutal_brain_halts_safely_when_llm_fails() -> None:
     brain = MultiAgentBrain(client=failing_client)
     brain.mcp_client = None
     brain.mcp_tools = {}
+    # Hermetic test: do not write reflection snapshots to the production DB.
+    monkeypatch.setenv("GODMODE_REFLECTION_MEMORY", "0")
 
     # Must NOT raise — must return a safe neutral plan.
     result = brain.evaluate_macro_regime(
@@ -1995,6 +1999,11 @@ def test_brutal_no_fabricated_data_in_mcp_or_edge_data() -> None:
         '"PPI": "2.8%"',
         'usd_value": 12000000',
         "Simulated execution",
+        # Fake tool *definitions* formerly injected when no MCP server was up —
+        # advertising nonexistent capabilities is dishonest surface area.
+        "Run read-only SQL queries against the internal Godmode PostgreSQL",
+        "Query the persistent memory knowledge graph for past trading rules",
+        "returning simulated mocks",
     ]
 
     edge_src = inspect.getsource(edge_mod)
@@ -2028,6 +2037,16 @@ def test_brutal_no_fabricated_data_in_mcp_or_edge_data() -> None:
             assert out == {"observations": []}, f"{tool} should return empty, got {out}"
         else:
             assert out == {}, f"{tool} should return {{}}, got {out}"
+
+    # Behavioral: when truly offline (empty registry), NO tool definitions may
+    # be advertised — an empty list is the only honest answer. Patched so the
+    # test never spawns real MCP subprocesses.
+    from unittest.mock import patch
+
+    offline_client = mcp_mod.MCPClient()
+    with patch.object(offline_client.registry, "list_servers", return_value=[]):
+        assert offline_client.get_available_tools() == [], (
+            "get_available_tools must not advertise fake tools when MCP is offline")
 
 
 def test_brutal_alpha_zoo_frac_diff_correct_weights_and_lags() -> None:

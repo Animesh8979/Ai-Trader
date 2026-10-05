@@ -32,6 +32,11 @@ PROTECTED_FILES = {
     "src/godmode/risk/engine.py",
     "src/godmode/core/killswitch.py",
     "src/godmode/core/binance_guard.py",
+    "src/godmode/execution/crypto_ccxt.py",
+    "src/godmode/execution/indian_broker_adapter.py",
+    "src/godmode/execution/live_runner.py",
+    "src/godmode/core/config.py",
+    "src/godmode/core/db.py",
 }
 
 SANDBOX_DIR = "scratch/godel-sandbox"
@@ -53,7 +58,10 @@ class GodelProposal:
 
 def _safe_path(path: str) -> bool:
     norm = Path(path).as_posix()
-    return not any(prot in norm for prot in PROTECTED_FILES)
+    for protected in PROTECTED_FILES:
+        if protected in norm or norm.endswith(protected):
+            return False
+    return True
 
 
 def _build_prompt_for_self_edit(source_code: str, recent_decision_reasons: List[str]) -> str:
@@ -270,13 +278,10 @@ class GodelTrader:
         return proposal
 
     def _promote_to_main(self, target_file: str) -> None:
-        if not _safe_path(target_file):
-            return
-        sandbox_file = self.sandbox_root / target_file
-        target_file_path = self.project_root / target_file
-        if sandbox_file.exists() and target_file_path.parent.exists():
-            shutil.copy2(sandbox_file, target_file_path)
-            log.info(f"[Gödel] Promoted {target_file} from sandbox to main.")
+        """DISABLED: Autonomous code promotion is a critical security risk.
+        Instead, output a .diff file for human review."""
+        log.warning(f"[GODEL] Auto-promotion DISABLED for safety. File: {target_file}")
+        return
 
     def status(self) -> Dict[str, Any]:
         return {
