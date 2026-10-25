@@ -163,23 +163,32 @@ class AutopilotSwarmEngine:
         import urllib.request as _u
 
         clean = symbol.replace("/", "").upper()
-        try:
-            ctx = ssl.create_default_context()
-            req = _u.Request(
-                f"https://api.binance.com/api/v3/ticker/price?symbol={clean}",
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            with _u.urlopen(req, timeout=4.0, context=ctx) as r:
-                price = float(_json.loads(r.read().decode())["price"])
-        except Exception as exc:
-            log.warning(f"Crypto price fetch failed for {symbol}: {exc}")
+        hosts = ["data-api.binance.vision", "api.binance.com", "api3.binance.com"]
+        price = 0.0
+        active_host = hosts[0]
+        ctx = ssl.create_default_context()
+
+        for host in hosts:
+            try:
+                req = _u.Request(
+                    f"https://{host}/api/v3/ticker/price?symbol={clean}",
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                with _u.urlopen(req, timeout=4.0, context=ctx) as r:
+                    price = float(_json.loads(r.read().decode())["price"])
+                active_host = host
+                break
+            except Exception as exc:
+                continue
+
+        if price <= 0.0:
+            log.warning(f"Crypto price fetch failed for {symbol} across all mirrors")
             return 0.0, []
 
         candles: list = []
         try:
-            ctx = ssl.create_default_context()
             req = _u.Request(
-                f"https://api.binance.com/api/v3/klines?symbol={clean}&interval=5m&limit=200",
+                f"https://{active_host}/api/v3/klines?symbol={clean}&interval=5m&limit=200",
                 headers={"User-Agent": "Mozilla/5.0"},
             )
             with _u.urlopen(req, timeout=6.0, context=ctx) as r:
