@@ -158,3 +158,33 @@ def test_dashboard_api_agent_chat_commands(client):
     assert "Jev 6-Judgment System 1 Engine" in res_p_oracle.json()["reply"]
 
 
+def test_dashboard_monte_carlo_computes_real_metrics(client):
+    res1 = client.get("/api/monte_carlo?n_paths=120&n_steps=40")
+    res2 = client.get("/api/monte_carlo?n_paths=120&n_steps=40")
+    assert res1.status_code == 200
+    assert res2.status_code == 200
+    m1 = res1.json()["metrics"]
+    m2 = res2.json()["metrics"]
+    for key in (
+        "annualized_return",
+        "annualized_vol",
+        "sharpe_ratio",
+        "var_95",
+        "var_99",
+        "cvar_95",
+        "cvar_99",
+        "max_drawdown_pct",
+        "deflated_sharpe_ratio",
+        "ulcer_index",
+        "calmar_ratio",
+    ):
+        assert key in m1
+        assert isinstance(m1[key], (int, float))
+    assert m1["var_99"] >= m1["var_95"] >= 0.0
+    assert m1["cvar_99"] >= m1["cvar_95"] >= 0.0
+    # Stochastic Monte Carlo runs must reflect sampled paths rather than static constants
+    assert (m1["sharpe_ratio"], m1["annualized_vol"]) != (7.45, 24.80) or (
+        m2["sharpe_ratio"], m2["annualized_vol"]
+    ) != (7.45, 24.80)
+
+

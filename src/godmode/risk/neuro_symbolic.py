@@ -94,8 +94,6 @@ def _validate_predicate_safety(expr_source: str) -> bool:
             if any(k.arg in {"__builtins__", "globals", "locals"} for k in node.keywords):
                 return False
         # Reject literals carrying huge strings/bytes (potential memory bomb).
-        if isinstance(node, (ast.Str, ast.Bytes)) and len(node.s) > 256:
-            return False
         if isinstance(node, ast.Constant) and isinstance(node.value, (str, bytes)) \
                 and len(node.value) > 256:
             return False

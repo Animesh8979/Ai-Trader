@@ -557,7 +557,7 @@ class LiveRunner:
                     # Compute realized pnl sum for today
                     day_pnl = Decimal("0")
                     db = get_db()
-                    today_str = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+                    today_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
                     pnl_rows = db.query(f"SELECT realized_pnl FROM fills WHERE ts LIKE '{today_str}%'")
                     if pnl_rows:
                         day_pnl = sum(Decimal(str(r["realized_pnl"] or "0")) for r in pnl_rows)

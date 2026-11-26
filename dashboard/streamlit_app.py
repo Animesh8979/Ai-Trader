@@ -1,10 +1,4 @@
-"""Godmode Bloomberg Terminal — Streamlit implementation of DESIGN.md v3.5.
-
-Visual identity: Dark Obsidian bg, Cyber Neon Cyan primary, Deep Quantum Purple accent,
-glassmorphism panels, JetBrains Mono typography, dual-monitor split.
-
-Run: `streamlit run dashboard/streamlit_app.py`
-"""
+"""Ai-Trader Terminal — Streamlit implementation."""
 
 from __future__ import annotations
 
@@ -181,7 +175,7 @@ def _color_pct(p: float) -> str:
 
 
 # ========= HEADER =========
-st.markdown('<div class="godmode-header-bar">GODMODE TERMINAL · v4.0 · Bloomberg-Style Realtime HUD</div>', unsafe_allow_html=True)
+st.markdown('<div class="godmode-header-bar">GODMODE TERMINAL · v4.0 · Paper-First Realtime HUD</div>', unsafe_allow_html=True)
 
 ks = _safe_kill_status()
 status_class = "godmode-status-running" if not ks.get("halted") else "godmode-status-halted"
@@ -326,6 +320,6 @@ with ccol2:
             st.error(f"Failed: {exc}")
 
 st.markdown(
-    '<div class="godmode-panel" style="text-align:center; margin-top: 20px;"><span class="godmode-ticker">GODMODE TERMINAL · ALL SIGNALS NOMINAL · BLOOMBERG-STYLE DENSITY · PONYTAIL MINDSET</span></div>',
+    '<div class="godmode-panel" style="text-align:center; margin-top: 20px;"><span class="godmode-ticker">GODMODE TERMINAL · ALL SIGNALS NOMINAL · PAPER-FIRST RISK TELEMETRY</span></div>',
     unsafe_allow_html=True,
 )

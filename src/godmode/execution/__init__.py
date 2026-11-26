@@ -1,9 +1,7 @@
 """Execution & venue adapters.
 
-Phase 0 ships a light ccxt-based connectivity adapter (for the smoke test). Phase 1
-brings in NautilusTrader as the production event-driven core, where the *same* strategy
-code runs in backtest, paper, and live with no look-ahead bias. Includes idempotent
-order submission and a broker-state reconciliation loop.
+Provides CCXT crypto testnet connectivity, Indian broker adapter scaffolding,
+idempotent client order IDs, post-only pegging helpers, and the async live/paper runner.
 """
 
 from godmode.execution.base import Broker, Order, Fill, Position, Account, Side, OrderType, OrderStatus
@@ -21,8 +19,9 @@ __all__ = [
     "Side",
     "OrderType",
     "OrderStatus",
-    "NautilusBrokerAdapter",
+    "BaseBrokerAdapter",
     "CryptoCcxtAdapter",
+    "ShoonyaAdapter",
     "LiveRunner",
 ]
 

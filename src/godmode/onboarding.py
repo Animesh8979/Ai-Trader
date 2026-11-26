@@ -42,7 +42,7 @@ VENUES = {
 }
 
 _DISCLAIMER = (
-    "[bold]Welcome to the Godmode Trading Agent setup.[/]\n\n"
+    "[bold]Welcome to Ai-Trader setup.[/]\n\n"
     "This bot defaults to [bold green]paper trading[/] — simulated money, real prices. "
     "No real funds are ever at risk until you explicitly switch to live mode much later.\n\n"
     "[yellow]Honest note:[/] no trading bot can guarantee profits. This project's edge is "

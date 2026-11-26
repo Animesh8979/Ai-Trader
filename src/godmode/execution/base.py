@@ -1,8 +1,7 @@
 """Venue-agnostic execution domain model + the Broker interface.
 
-Both the PaperBroker (simulation — used live-paper and in backtests) and any future
-NautilusBroker (real venues) implement `Broker`. The risk engine, router, audit, and
-agent layers depend only on this interface, never on a specific engine. Decimal everywhere.
+Both simulated paper execution and venue adapters implement `Broker`. The risk engine,
+router, audit log, and agent layers depend only on this interface, using `Decimal` arithmetic.
 """
 
 from __future__ import annotations

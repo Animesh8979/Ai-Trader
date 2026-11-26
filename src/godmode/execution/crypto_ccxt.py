@@ -1,9 +1,7 @@
-"""Lightweight crypto connectivity adapter (Phase 0) built on ccxt.
+"""Lightweight crypto connectivity adapter built on CCXT.
 
-This is NOT the production execution engine — that arrives in Phase 1 (NautilusTrader).
-Its job is to prove, end-to-end, that the user's TESTNET keys work: connect, read live
-prices, read the (fake) balance, and place + immediately cancel a tiny non-marketable
-order. Everything here runs against exchange *testnets* (fake money, real prices).
+Connects to exchange sandboxes/testnets (paper funds against market data) to inspect
+balances, fetch live prices, and exercise cancel/round-trip order probes.
 """
 
 from __future__ import annotations

@@ -33,7 +33,7 @@ BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
-app = FastAPI(title="Godmode Bloomberg Terminal v4.0 — Ultra-Fast Real-Time Interface")
+app = FastAPI(title="Ai-Trader — Quantitative Risk & Execution Terminal")
 
 app.add_middleware(
     CORSMiddleware,
@@ -653,6 +653,42 @@ async def get_monte_carlo_simulation(n_paths: int = Query(500, ge=10, le=2000), 
         if dd < max_dd:
             max_dd = dd
             
+    # Compute empirical risk & performance metrics from the simulated paths
+    step_returns = [
+        (p[t] / p[t - 1]) - 1.0
+        for p in paths
+        for t in range(1, n_steps + 1)
+        if p[t - 1] > 0
+    ]
+    n_obs = len(step_returns)
+    mean_step = (sum(step_returns) / n_obs) if n_obs else 0.0
+    var_step = (
+        sum((r - mean_step) ** 2 for r in step_returns) / max(1, n_obs - 1)
+        if n_obs > 1
+        else 0.0
+    )
+    std_step = math.sqrt(max(0.0, var_step))
+
+    ann_return_pct = ((1.0 + mean_step) ** 252 - 1.0) * 100.0 if mean_step > -0.99 else -100.0
+    ann_vol_pct = std_step * math.sqrt(252.0) * 100.0
+    sharpe = ((mean_step / std_step) * math.sqrt(252.0)) if std_step > 1e-12 else 0.0
+
+    losses_pct = sorted([-(r * 100.0) for r in step_returns], reverse=True)
+    idx_95 = max(0, min(len(losses_pct) - 1, int(len(losses_pct) * 0.05)))
+    idx_99 = max(0, min(len(losses_pct) - 1, int(len(losses_pct) * 0.01)))
+    var_95 = losses_pct[idx_95] if losses_pct else 0.0
+    var_99 = losses_pct[idx_99] if losses_pct else 0.0
+    tail_95 = losses_pct[: max(1, idx_95 + 1)] if losses_pct else [0.0]
+    tail_99 = losses_pct[: max(1, idx_99 + 1)] if losses_pct else [0.0]
+    cvar_95 = sum(tail_95) / len(tail_95)
+    cvar_99 = sum(tail_99) / len(tail_99)
+
+    ulcer_index = math.sqrt(sum(d * d for d in drawdowns) / len(drawdowns)) if drawdowns else 0.0
+    max_dd_abs = abs(max_dd)
+    calmar = (ann_return_pct / max_dd_abs) if max_dd_abs > 1e-6 else 0.0
+    sr_se = math.sqrt(max(1e-12, (1.0 + 0.5 * (sharpe ** 2)) / max(1, n_steps)))
+    dsr_pct = 50.0 * math.erfc(-(sharpe / sr_se) / math.sqrt(2.0))
+
     return {
         "n_paths": n_paths,
         "n_steps": n_steps,
@@ -666,17 +702,17 @@ async def get_monte_carlo_simulation(n_paths: int = Query(500, ge=10, le=2000), 
         "sample_trajectories": [paths[i] for i in range(0, n_paths, max(1, n_paths // 6))][:6],
         "underwater_median": drawdowns,
         "metrics": {
-            "annualized_return": 18.42,
-            "annualized_vol": 24.80,
-            "sharpe_ratio": 7.45,
-            "var_95": 2.45,
-            "var_99": 3.82,
-            "cvar_95": 3.12,
-            "cvar_99": 4.65,
-            "max_drawdown_pct": abs(round(max_dd, 2)),
-            "deflated_sharpe_ratio": 99.40,
-            "ulcer_index": 1.42,
-            "calmar_ratio": 4.98
+            "annualized_return": round(ann_return_pct, 2),
+            "annualized_vol": round(ann_vol_pct, 2),
+            "sharpe_ratio": round(sharpe, 2),
+            "var_95": round(max(0.0, var_95), 2),
+            "var_99": round(max(0.0, var_99), 2),
+            "cvar_95": round(max(0.0, cvar_95), 2),
+            "cvar_99": round(max(0.0, cvar_99), 2),
+            "max_drawdown_pct": round(max_dd_abs, 2),
+            "deflated_sharpe_ratio": round(max(0.0, min(100.0, dsr_pct)), 2),
+            "ulcer_index": round(ulcer_index, 2),
+            "calmar_ratio": round(calmar, 2)
         }
     }
 

@@ -40,5 +40,7 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# Graphify output
+# Graphify & scratch artifacts
 graphify-out/
+scratch/
+memory/

@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "godmode-trader"
 version = "4.0.0"
-description = "Godmode Trading Agent — a precise, automated, reliable multi-agent autonomous trading system (paper-first)."
+description = "Paper-first quantitative risk, regime-detection, and crypto execution service with FastAPI telemetry."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Godmode Trader" }]
+authors = [{ name = "Animesh Shukla", email = "anishukla.2003@gmail.com" }]
 keywords = ["trading", "ai-agents", "llm", "crypto", "backtesting", "risk-management"]
 
 dependencies = [

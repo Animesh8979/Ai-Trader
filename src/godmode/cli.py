@@ -94,7 +94,7 @@ def _cmd_run(_args) -> int:
     try:
         runner.start("Live execution loop initiated via CLI run command.")
         print("\n======================================================================")
-        print(" Godmode Trading Agent — Live execution loop is running.")
+        print(" Ai-Trader — Paper/live execution loop is running.")
         print(" Press Ctrl+C to terminate the process.")
         print("======================================================================\n")
         loop.run_forever()
@@ -133,7 +133,7 @@ _DISPATCH = {
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="godmode",
-        description="Godmode Trading Agent — precise, automated, reliable (paper-first).",
+        description="Ai-Trader — paper-first quantitative risk and execution engine.",
     )
     parser.add_argument("--version", action="store_true", help="print version and exit")
     sub = parser.add_subparsers(dest="command")
